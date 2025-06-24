@@ -9,6 +9,7 @@ from flask_cors import CORS
 import mysql.connector
 import mercadopago
 import json
+from flask_jwt_extended import jwt_required, get_jwt_identity
 
 load_dotenv()
 app = Flask(__name__)
@@ -66,6 +67,32 @@ def create_reservation_payment(reservation_id):
 
     except Exception as e:
         return jsonify({"error": f"Erro ao criar pagamento PIX: {e}"}), 500
+
+@app.route("/api/auth/me", methods=["GET"])
+def get_logged_in_user_data():
+    token = request.headers.get('Authorization', '').split(" ")[1] if 'Authorization' in request.headers else None
+    if not token:
+        return jsonify({"error": "Token não fornecido"}), 401
+    try:
+        decoded_token = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=[app.config['JWT_ALGORITHM']])
+        user_id = decoded_token['user_id']
+        user_apt = decoded_token['apt'] # Pega o apartamento diretamente do payload do token
+        user_role = decoded_token['role'] # Pega a permissão do token
+        
+        # Como o 'apt' já está no token que você gera no login,
+        # não é necessário fazer uma nova consulta ao banco de dados aqui só para o apartamento.
+        
+        return jsonify({
+            "user_id": user_id,
+            "apartment": user_apt, # Retorna o apartamento
+            "role": user_role
+        }), 200
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expirado. Faça login novamente."}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Token inválido."}), 401
+    except Exception as e:
+        return jsonify({"error": f"Erro ao decodificar token: {e}"}), 500
 
 
 # --- ROTA PARA RECEBER NOTIFICAÇÕES (WEBHOOK) DO MERCADO PAGO ---
@@ -190,21 +217,80 @@ def add_visitor():
     try:
         decoded_token = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=[app.config['JWT_ALGORITHM']])
         user_id = decoded_token['user_id']
-    except: return jsonify({"error": "Token inválido ou expirado"}), 401
+        # No backend, não precisamos do apartamento do morador do token para o registro do visitante,
+        # pois o frontend já envia e ele é validado com o user_id.
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expirado. Faça login novamente."}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Token inválido."}), 401
+    except Exception as e:
+        return jsonify({"error": f"Erro ao decodificar token: {e}"}), 500
+        
     data = request.get_json()
-    if not all(k in data for k in ['name', 'cpf', 'release_date', 'resident_apartment', 'has_car']): return jsonify({"error": "Dados incompletos"}), 400
-    conn = get_db_connection()
-    if not conn: return jsonify({"error": "Erro de conexão"}), 500
-    cursor = conn.cursor()
-    sql = "INSERT INTO visitors (name, cpf, release_date, has_car, car_plate, car_model, car_color, resident_apartment, observations, registered_by_user_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    if not all(k in data for k in ['name', 'cpf', 'release_date', 'resident_apartment', 'has_car']):
+        return jsonify({"error": "Dados incompletos: nome, cpf, data de liberação, apartamento do morador e posse de carro são obrigatórios."}), 400
+    
+    # Validação do formato da data
     try:
-        cursor.execute(sql, (data['name'], data['cpf'], data['release_date'], data['has_car'], data.get('car_plate'), data.get('car_model'), data.get('car_color'), data['resident_apartment'], data.get('observations'), user_id))
+        # Tenta converter a string da data para um objeto date
+        release_date_obj = datetime.datetime.strptime(data['release_date'], '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"error": "Formato de data de liberação inválido. Use AAAA-MM-DD."}), 400
+
+    conn = get_db_connection()
+    if not conn: return jsonify({"error": "Erro de conexão com o banco de dados"}), 500
+    cursor = conn.cursor(dictionary=True) # Use dictionary=True para acessar colunas por nome
+
+    try:
+        # Lógica para verificar se o CPF já está liberado para a data informada
+        # Busca por liberações do mesmo CPF que ainda estejam ativas na data da nova liberação
+        # Uma liberação é considerada 'ativa' se a data de liberação (release_date) for maior ou igual à data de hoje.
+        # Ou, no seu caso específico: verificar se JÁ EXISTE uma liberação para este CPF
+        # cuja data de liberação (release_date) seja MAIOR OU IGUAL à data que o usuário está tentando liberar.
+        # Isso significa que se alguém tentar liberar um CPF para 2025-06-25,
+        # e já houver uma liberação para 2025-06-26, ele será impedido.
+
+        sql_check = """
+            SELECT release_date
+            FROM visitors
+            WHERE cpf = %s
+            AND release_date >= %s
+            ORDER BY release_date DESC
+            LIMIT 1
+        """
+        cursor.execute(sql_check, (data['cpf'], release_date_obj))
+        existing_liberation = cursor.fetchone()
+
+        if existing_liberation:
+            # Se encontrou uma liberação para a mesma data ou uma data futura
+            existing_date = existing_liberation['release_date'].strftime('%d/%m/%Y')
+            return jsonify({"error": f"Este CPF já possui uma liberação válida até o dia {existing_date}. Não é possível criar uma nova liberação para a mesma data ou data anterior."}), 409 # 409 Conflict
+
+        # Se não encontrou liberação conflitante, procede com a inserção
+        sql_insert = "INSERT INTO visitors (name, cpf, release_date, has_car, car_plate, car_model, car_color, resident_apartment, observations, registered_by_user_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        cursor.execute(sql_insert, (
+            data['name'],
+            data['cpf'],
+            release_date_obj, # Usar o objeto date
+            data['has_car'],
+            data.get('car_plate'),
+            data.get('car_model'),
+            data.get('car_color'),
+            data['resident_apartment'],
+            data.get('observations'),
+            user_id
+        ))
         conn.commit()
     except mysql.connector.Error as err:
         conn.rollback()
-        if err.errno == 1062: return jsonify({"error": "CPF já cadastrado."}), 409
-        return jsonify({"error": str(err)}), 500
-    finally: cursor.close(); conn.close()
+        return jsonify({"error": f"Erro no banco de dados: {str(err)}"}), 500
+    except Exception as e:
+        conn.rollback() # Garante rollback em qualquer outra exceção
+        return jsonify({"error": f"Ocorreu um erro inesperado ao registrar o visitante: {str(e)}"}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
     return jsonify({"message": "Visitante registrado com sucesso!"}), 201
 
 @app.route("/api/occurrences", methods=["POST"])
@@ -422,6 +508,46 @@ def get_booked_dates():
     conn.close()
     
     return jsonify(booked_dates)
+
+@app.route('/api/payments/status', methods=['POST'])
+@jwt_required()  # Agora está corretamente importado
+def check_payment_status():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Dados não fornecidos"}), 400
+
+        qr_code_text = data.get('qr_code_text')
+        if not qr_code_text:
+            return jsonify({"error": "Código PIX não fornecido"}), 400
+
+        # Aqui você deve implementar a verificação real com seu provedor PIX
+        # Exemplo simulado:
+        payment = db.session.query(Payment).filter_by(
+            qr_code_text=qr_code_text,
+            user_id=get_jwt_identity()  # Verifica se o pagamento pertence ao usuário
+        ).first()
+
+        if not payment:
+            return jsonify({
+                "paid": False,
+                "message": "Pagamento não encontrado"
+            }), 404
+
+        # Simulando uma verificação de pagamento
+        # Na prática, você faria uma chamada à API do seu PSP (PagSeguro, Mercado Pago, etc.)
+        is_paid = payment.status == "PAID"  # Ou sua lógica de verificação real
+
+        return jsonify({
+            "paid": is_paid,
+            "message": "Pagamento confirmado" if is_paid else "Aguardando pagamento"
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "Erro ao verificar status do pagamento",
+            "details": str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

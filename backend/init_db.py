@@ -13,14 +13,18 @@ def setup_database():
         print("Verificando/Criando tabela 'users' com novas colunas...")
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            email VARCHAR(100) NOT NULL UNIQUE,
-            password_hash VARCHAR(255) NOT NULL,
-            apt VARCHAR(20) NOT NULL,
-            permission VARCHAR(50) NOT NULL DEFAULT 'Morador',
-            active BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    cpf VARCHAR(14) NOT NULL, -- CPF não é UNIQUE aqui
+    release_date DATE NOT NULL,
+    has_car BOOLEAN DEFAULT FALSE,
+    car_plate VARCHAR(10),
+    car_model VARCHAR(100),
+    car_color VARCHAR(50),
+    resident_apartment VARCHAR(50) NOT NULL,
+    observations TEXT,
+    registered_by_user_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         ) ENGINE=InnoDB;
         """)
         print("Tabela 'users' OK.")
@@ -29,7 +33,7 @@ def setup_database():
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS visitors (
             id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL,
-            cpf VARCHAR(14) NOT NULL UNIQUE, release_date DATE NOT NULL,
+            cpf VARCHAR(14) NOT NULL, release_date DATE NOT NULL,
             has_car BOOLEAN DEFAULT FALSE, car_plate VARCHAR(10) NULL,
             car_model VARCHAR(50) NULL, car_color VARCHAR(30) NULL,
             resident_apartment VARCHAR(20) NOT NULL, observations TEXT NULL,

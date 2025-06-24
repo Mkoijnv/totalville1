@@ -1,4 +1,3 @@
-// frontend/components/Sidebar.tsx
 'use client';
 
 import { useState } from 'react';
@@ -6,18 +5,16 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
   FiUsers, FiAlertTriangle, FiCalendar, FiLogOut, FiHome,
-  FiInstagram, FiMessageSquare, FiChevronsLeft, FiChevronsRight 
+  FiInstagram, FiMessageSquare, FiLock, FiUnlock 
 } from 'react-icons/fi';
 
 export default function Sidebar() {
   const router = useRouter();
   
-  // 1. Agora temos dois estados para controlar a lógica
-  const [isPinned, setIsPinned] = useState(true); // Controla se a sidebar está FIXA no modo expandido
-  const [isHovering, setIsHovering] = useState(false); // Controla se o MOUSE está em cima
+  const [isLocked, setIsLocked] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
 
-  // A sidebar é considerada expandida se estiver fixada OU se o mouse estiver sobre ela.
-  const isExpanded = isPinned || isHovering;
+  const isExpanded = isLocked || (!isLocked && isHovering);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -39,42 +36,59 @@ export default function Sidebar() {
   ];
 
   return (
-    // 2. Adicionamos os eventos de mouse de volta
     <aside 
-      className={`sticky top-0 h-screen bg-green-800 text-white flex flex-col p-4 shadow-lg transition-all duration-300 ease-in-out ${isExpanded ? 'w-64' : 'w-20'}`}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
+      className={`sticky top-0 h-screen bg-green-800 text-white flex flex-col p-4 shadow-lg transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)] z-50
+        ${isExpanded ? 'w-64' : 'w-20'}`}
+      onMouseEnter={() => !isLocked && setIsHovering(true)}
+      onMouseLeave={() => !isLocked && setIsHovering(false)}
     >
-      {/* --- CABEÇALHO COM O BOTÃO SEMPRE VISÍVEL --- */}
-      <div className="flex items-center justify-between border-b border-green-700 pb-4 mb-10">
-        <div className="font-bold text-2xl">
-          {isExpanded ? (
+      {/* Cabeçalho */}
+      {isExpanded ? (
+        <div className="flex items-center justify-between border-b border-green-700 pb-4 mb-10 transition-opacity duration-300">
+          <div className="font-bold text-2xl whitespace-nowrap">
             <Link href="/dashboard">Total Ville 1</Link>
-          ) : (
-            // A sigla TV1 aparece quando a sidebar está recuada
-            <span>TV1</span>
-          )}
+          </div>
+          <button 
+            onClick={() => setIsLocked(!isLocked)} 
+            className="p-1 rounded-lg hover:bg-green-700 transition-colors"
+            title={isLocked ? "Destravar Barra" : "Travar Barra"}
+          >
+            {isLocked ? <FiLock size={20} /> : <FiUnlock size={20} />}
+          </button>
         </div>
-        
-        {/* 3. O botão para fixar/liberar está sempre visível */}
-        <button 
-          onClick={() => setIsPinned(!isPinned)} 
-          className="p-1 rounded-lg hover:bg-green-700"
-          title={isPinned ? "Recolher Barra" : "Fixar Barra"}
-        >
-          {/* O ícone muda dependendo se está fixo ou não */}
-          {isPinned ? <FiChevronsLeft size={24} /> : <FiChevronsRight size={24} />}
-        </button>
-      </div>
+      ) : (
+        <div className="flex flex-col items-center border-b border-green-700 pb-4 mb-10 transition-opacity duration-300">
+          <div className="font-bold text-2xl mb-2">TV1</div>
+          <button 
+            onClick={() => setIsLocked(!isLocked)} 
+            className="p-1 rounded-lg hover:bg-green-700 transition-colors"
+            title={isLocked ? "Destravar Barra" : "Travar Barra"}
+          >
+            {isLocked ? <FiLock size={20} /> : <FiUnlock size={20} />}
+          </button>
+        </div>
+      )}
 
       {/* Navegação Principal */}
       <nav className="flex-grow">
         <ul>
           {navLinks.map((link) => (
-            <li key={link.name} className="mb-3">
-              <Link href={link.href} className="flex items-center p-3 rounded-lg hover:bg-green-700">
-                {link.icon}
-                {isExpanded && <span className="ml-4 font-semibold">{link.name}</span>}
+            <li key={link.name} className="mb-3 overflow-hidden">
+              <Link 
+                href={link.href} 
+                className={`flex items-center p-3 rounded-lg hover:bg-green-700 transition-all duration-300
+                  ${!isExpanded ? 'justify-center' : ''}`}
+              >
+                <span className="flex-shrink-0">
+                  {link.icon}
+                </span>
+                <span className={`
+                  ml-4 font-semibold whitespace-nowrap
+                  transition-all duration-300 ease-out
+                  ${isExpanded ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-[-20px] absolute'}
+                `}>
+                  {link.name}
+                </span>
               </Link>
             </li>
           ))}
@@ -85,21 +99,47 @@ export default function Sidebar() {
       <div className="border-t border-green-700 pt-4 mb-4">
         <ul>
           {contactLinks.map((link) => (
-            <li key={link.name} className="mb-2">
-              <a href={link.href} target="_blank" rel="noopener noreferrer" className="flex items-center p-3 rounded-lg hover:bg-green-700">
-                {link.icon}
-                {isExpanded && <span className="ml-4 font-semibold">{link.name}</span>}
+            <li key={link.name} className="mb-2 overflow-hidden">
+              <a 
+                href={link.href} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className={`flex items-center p-3 rounded-lg hover:bg-green-700 transition-all duration-300
+                  ${!isExpanded ? 'justify-center' : ''}`}
+              >
+                <span className="flex-shrink-0">
+                  {link.icon}
+                </span>
+                <span className={`
+                  ml-4 font-semibold whitespace-nowrap
+                  transition-all duration-300 ease-out
+                  ${isExpanded ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-[-20px] absolute'}
+                `}>
+                  {link.name}
+                </span>
               </a>
             </li>
           ))}
         </ul>
       </div>
 
-      {/* Seção de Logout */}
-      <div className="border-t border-green-700 pt-4">
-        <button onClick={handleLogout} className="w-full flex items-center justify-center p-3 rounded-lg bg-red-600 hover:bg-red-700">
-          <FiLogOut size={24} />
-          {isExpanded && <span className="ml-4 font-semibold">Sair</span>}
+      {/* Botão de Sair */}
+      <div className="border-t border-green-700 pt-4 overflow-hidden">
+        <button 
+          onClick={handleLogout} 
+          className={`w-full flex items-center p-3 rounded-lg bg-red-600 hover:bg-red-700 transition-all duration-300
+            ${!isExpanded ? 'justify-center' : ''}`}
+        >
+          <span className="flex-shrink-0">
+            <FiLogOut size={24} />
+          </span>
+          <span className={`
+            ml-4 font-semibold whitespace-nowrap
+            transition-all duration-300 ease-out
+            ${isExpanded ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-[-20px] absolute'}
+          `}>
+            Sair
+          </span>
         </button>
       </div>
     </aside>
