@@ -72,32 +72,42 @@ def create_reservation_payment(reservation_id):
 @app.route("/api/webhooks/mercadopago", methods=["POST"])
 def mercadopago_webhook():
     data = request.json
-    # A notificação do Mercado Pago vem com o tipo de evento e o id do dado
+    print(f"\n--- Webhook do Mercado Pago Recebido ---")
+    print(f"Corpo da Notificação: {data}")
+
     if data and data.get("type") == "payment":
         payment_id = data["data"]["id"]
-        print(f"Recebida notificação para o pagamento ID: {payment_id}")
+        print(f"Notificação é do tipo 'payment'. ID do Pagamento: {payment_id}")
 
-        # Com o ID do pagamento, você busca o status real no Mercado Pago para confirmar
-        payment_info_response = sdk.payment().get(payment_id)
-        payment_info = payment_info_response["response"]
+        try:
+            # Com o ID do pagamento, busca o status real no Mercado Pago
+            print(f"Buscando detalhes do pagamento {payment_id} no Mercado Pago...")
+            payment_info_response = sdk.payment().get(payment_id)
+            payment_info = payment_info_response["response"]
+            
+            print(f"Resposta do GET do pagamento: {payment_info}")
+            payment_status = payment_info.get("status")
+            print(f"Status do pagamento encontrado: '{payment_status}'")
 
-        if payment_info["status"] == "approved":
-            # Se o pagamento foi aprovado, pegamos nossa referência interna
-            reservation_id = payment_info["external_reference"]
-            print(f"Pagamento {payment_id} aprovado! Atualizando reserva {reservation_id}...")
+            if payment_status == "approved":
+                reservation_id = payment_info.get("external_reference")
+                print(f"PAGAMENTO APROVADO! Atualizando reserva #{reservation_id}...")
 
-            # Atualiza o status da reserva no seu banco de dados
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE reservations SET status = 'Aprovada' WHERE id = %s", (reservation_id,))
-                conn.commit()
-                cursor.close()
-                conn.close()
-                print(f"Reserva {reservation_id} atualizada para 'Aprovada'.")
+                conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE reservations SET status = 'Aprovada' WHERE id = %s", (reservation_id,))
+                    conn.commit()
+                    cursor.close()
+                    conn.close()
+                    print(f"Reserva #{reservation_id} atualizada para 'Aprovada' no banco de dados.")
+            else:
+                print(f"Pagamento não está com status 'approved'. Nada a fazer.")
+
+        except Exception as e:
+            print(f"ERRO AO PROCESSAR WEBHOOK: {e}")
 
     return jsonify({"status": "ok"}), 200
-
 # --- ROTAS DE AUTENTICAÇÃO ---
 @app.route("/api/register", methods=["POST"])
 def register_user():
@@ -219,14 +229,13 @@ def add_occurrence():
     finally: cursor.close(); conn.close()
     return jsonify({"message": "Ocorrência registrada com sucesso!"}), 201
 
-@app.route("/api/reservations", methods=["POST"])
-@app.route("/api/reservations", methods=["POST"])
+# Em backend/app.py
+
 # Em backend/app.py
 
 @app.route("/api/reservations", methods=["POST"])
-@app.route("/api/reservations", methods=["POST"])
 def add_reservation():
-    # 1. Proteção da Rota e Extração do ID do Usuário
+    # 1. Proteção da Rota e Validação dos Dados
     token = request.headers.get('Authorization', '').split(" ")[1] if 'Authorization' in request.headers else None
     if not token: return jsonify({"error": "Token não fornecido"}), 401
     try:
@@ -241,9 +250,24 @@ def add_reservation():
 
     conn = get_db_connection()
     if not conn: return jsonify({"error": "Erro de conexão com o banco"}), 500
-    cursor = conn.cursor(dictionary=True) # Usamos dictionary=True para facilitar
+    cursor = conn.cursor(dictionary=True)
 
-    # --- NOVA LÓGICA PARA BUSCAR O EMAIL DO USUÁRIO ---
+    # --- LÓGICA DE VERIFICAÇÃO INTELIGENTE ---
+    try:
+        # CORREÇÃO APLICADA AQUI: A consulta agora busca apenas o 'status', que é o que precisamos.
+        check_sql = "SELECT status FROM reservations WHERE space_name = %s AND reservation_date = %s"
+        cursor.execute(check_sql, (data['space_name'], data['reservation_date']))
+        existing_reservation = cursor.fetchone()
+
+        if existing_reservation:
+            if existing_reservation['status'] == 'Aprovada':
+                return jsonify({"error": "Este espaço já está reservado e confirmado para a data selecionada."}), 409
+            else: # Se o status for 'Pendente' ou qualquer outro
+                return jsonify({"error": "Uma reserva para esta data já foi solicitada e aguarda pagamento. Por favor, consulte a administração ou tente mais tarde."}), 409
+    except mysql.connector.Error as err:
+         return jsonify({"error": f"Erro ao verificar disponibilidade: {err}"}), 500
+
+    # Busca de E-mail do Usuário
     try:
         cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
         user_record = cursor.fetchone()
@@ -253,9 +277,8 @@ def add_reservation():
     except Exception as e:
         cursor.close(); conn.close()
         return jsonify({"error": f"Erro ao buscar dados do usuário: {e}"}), 500
-    # --------------------------------------------------
-
-    # Insere a reserva no SEU banco de dados com status 'Pendente'
+    
+    # Criação da Reserva
     sql_insert = "INSERT INTO reservations (space_name, reservation_date, reserved_by_user_id, status) VALUES (%s, %s, %s, 'Pendente')"
     reservation_id = None
     try:
@@ -265,28 +288,20 @@ def add_reservation():
         print(f"Reserva #{reservation_id} criada como 'Pendente'.")
     except mysql.connector.Error as err:
         conn.rollback()
-        if err.errno == 1062:
-            return jsonify({"error": "Este espaço já está reservado para a data selecionada."}), 409
-        return jsonify({"error": f"Erro no banco de dados: {err}"}), 500
-    
-    # Gera a cobrança PIX no Mercado Pago
+        return jsonify({"error": "Conflito de agendamento detectado pelo banco de dados."}), 409
+
+    # Geração do Pagamento PIX
     if reservation_id:
         try:
-            # --- VALOR DA COBRANÇA ALTERADO ---
-            payment_amount = 0.10 # Valor alterado para 10 centavos
-            
+            payment_amount = 0.10
             payment_data = {
                 "transaction_amount": payment_amount,
                 "description": f"Taxa de reserva para {data['space_name']} em {data['reservation_date']}",
                 "payment_method_id": "pix",
-                "payer": {
-                    # --- E-MAIL DINÂMICO APLICADO ---
-                    "email": user_email, 
-                },
-                "notification_url": f"https://ec95-2804-1128-bd48-a100-6c8e-cbc6-5dc6-f044.ngrok-free.app/api/webhooks/mercadopago",
+                "payer": { "email": user_email },
+                "notification_url": f"https://ec95-2804-1128-bd48-a100-6c8e-cbc6-5dc6-f044.ngrok-free.app/api/webhooks/mercadopago", # Lembre-se que esta URL é temporária
                 "external_reference": str(reservation_id)
             }
-            
             payment_response = sdk.payment().create(payment_data)
 
             if payment_response["status"] == 201:
@@ -300,15 +315,16 @@ def add_reservation():
                 return jsonify(pix_data), 201
             else:
                 raise Exception(payment_response["response"].get("message", "Erro desconhecido do Mercado Pago"))
-
         except Exception as e:
             print(f"Erro ao criar pagamento PIX: {e}")
-            # Idealmente, aqui você deveria cancelar a reserva que foi criada, mas para já, retornamos o erro.
             return jsonify({"error": "A reserva foi criada, mas houve uma falha ao gerar o pagamento PIX."}), 500
         finally:
             cursor.close()
             conn.close()
     
+    # Fallback
+    cursor.close()
+    conn.close()
     return jsonify({"error": "Ocorreu um erro inesperado ao processar a reserva."}), 500
 # --- ROTAS DE LEITURA (GET) PARA O DASHBOARD ---
 @app.route("/api/my-reservations", methods=["GET"])

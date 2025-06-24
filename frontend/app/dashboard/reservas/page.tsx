@@ -8,10 +8,13 @@ import 'react-datepicker/dist/react-datepicker.css';
 import { ptBR } from 'date-fns/locale';
 import { FiCopy } from 'react-icons/fi';
 
-// Registra a localidade para o calendário em português
-registerLocale('pt-BR', ptBR);
+// Garante que a tradução para português seja registrada
+try {
+  registerLocale('pt-BR', ptBR);
+} catch (error) {
+  console.error("Locale 'pt-BR' pode já ter sido registrada.", error);
+}
 
-// --- Estruturas de Dados ---
 const availableSpaces = [
   { name: "Churrasqueira 1 (dentro do gourmet)", image: "/churrasqueira_gourmet.jpeg" },
   { name: "Churrasqueira 2 (ao lado da quadra)", image: "/churrasqueira_quadra.jpeg" },
@@ -26,7 +29,6 @@ interface PixData {
 }
 
 export default function ReservasPage() {
-  // --- Estados do Componente ---
   const [spaceName, setSpaceName] = useState(availableSpaces[0].name);
   const [reservationDate, setReservationDate] = useState<Date | null>(null);
   const [selectedImage, setSelectedImage] = useState(availableSpaces[0].image);
@@ -38,7 +40,6 @@ export default function ReservasPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Efeito para buscar as datas já reservadas
   useEffect(() => {
     const fetchBookedDates = async () => {
       if (!spaceName) return;
@@ -48,10 +49,29 @@ export default function ReservasPage() {
         const response = await fetch(`http://127.0.0.1:5000/api/reservations/booked-dates?space=${encodeURIComponent(spaceName)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (!response.ok) return;
-        const dates: string[] = await response.json();
-        setBookedDates(dates.map(dateStr => new Date(dateStr)));
-      } catch (error) { console.error("Erro ao buscar datas reservadas:", error); }
+        if (!response.ok) {
+          throw new Error("Falha ao carregar datas reservadas.");
+        }
+        const datesAsStrings = await response.json();
+        
+        if (Array.isArray(datesAsStrings)) {
+            const validDates = datesAsStrings.map(dateStr => {
+                if (dateStr && typeof dateStr === 'string' && dateStr.includes('-')) {
+                  const [year, month, day] = dateStr.split('-').map(Number);
+                  if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+                    return new Date(Date.UTC(year, month - 1, day));
+                  }
+                }
+                return null;
+              }).filter((date): date is Date => date !== null);
+            setBookedDates(validDates);
+        } else {
+            setBookedDates([]);
+        }
+      } catch (error) {
+        console.error("Erro ao buscar datas reservadas:", error);
+        setError("Não foi possível carregar o calendário de datas.");
+      }
     };
     fetchBookedDates();
   }, [spaceName]);
@@ -65,7 +85,13 @@ export default function ReservasPage() {
     setTermsAccepted(false);
   };
 
-  // Lógica de submissão que agora gera o PIX e abre o modal
+  const handleDateChange = (date: Date | null) => {
+    setReservationDate(date);
+    if (!date) {
+      setTermsAccepted(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reservationDate || !termsAccepted) {
@@ -98,7 +124,7 @@ export default function ReservasPage() {
       setLoading(false);
     }
   };
-
+  
   const copyToClipboard = () => {
     if (pixData) {
       navigator.clipboard.writeText(pixData.qr_code_text);
@@ -127,17 +153,19 @@ export default function ReservasPage() {
           
           <div>
             <label htmlFor="reservation_date" className="block text-sm font-medium text-gray-700">Data da Reserva</label>
-            <DatePicker id="reservation_date" selected={reservationDate} onChange={(date: Date | null) => setReservationDate(date)} excludeDates={bookedDates} minDate={new Date()} dateFormat="dd/MM/yyyy" locale="pt-BR" placeholderText="Selecione uma data" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-gray-900" required />
+            <DatePicker id="reservation_date" selected={reservationDate} onChange={handleDateChange} excludeDates={bookedDates} minDate={new Date()} dateFormat="dd/MM/yyyy" locale="pt-BR" placeholderText="Selecione uma data" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-gray-900" required />
           </div>
 
           {reservationDate && (
             <div className="space-y-4 rounded-lg border border-yellow-300 bg-yellow-50 p-4">
               <h3 className="text-md font-bold text-yellow-800">Termos de Uso e Responsabilidade</h3>
-              <ul className="list-disc list-inside space-y-1 text-sm text-yellow-700">
-                <li>O responsável pela reserva compromete-se a zelar pela limpeza e conservação do espaço.</li>
-                <li>É proibido som em volume que perturbe o sossego dos demais moradores.</li>
+              <ul className="list-disc list-inside space-y-2 text-sm text-yellow-700">
+                <li>O responsável pela reserva compromete-se a zelar pela **limpeza e conservação** do espaço, entregando-o nas mesmas condições em que foi recebido.</li>
+                <li>É estritamente proibido som em volume que perturbe o **sossego dos demais moradores**, especialmente após as 22h, conforme regimento interno.</li>
+                <li>Qualquer **dano causado** ao patrimônio do condomínio (mesas, cadeiras, equipamentos, etc.) durante o uso será de total responsabilidade do morador titular da reserva.</li>
+                <li>O morador é responsável por todos os seus convidados e por garantir que as regras do condomínio sejam respeitadas por todos.</li>
               </ul>
-              <div className="flex items-start">
+              <div className="flex items-start pt-2">
                 <input id="terms" name="terms" type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} className="h-4 w-4 text-green-600 border-gray-300 rounded focus:ring-green-500 mt-1" />
                 <div className="ml-3 text-sm">
                   <label htmlFor="terms" className="font-medium text-gray-800">Li e concordo com os termos de uso.</label>
