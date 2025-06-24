@@ -7,6 +7,8 @@ from flask import Flask, request, jsonify
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 import mysql.connector
+import mercadopago
+import json
 
 load_dotenv()
 app = Flask(__name__)
@@ -25,12 +27,85 @@ def get_db_connection():
     except mysql.connector.Error as err:
         print(f"Erro ao conectar ao MySQL: {err}")
         return None
+    
+    # Configura o SDK do Mercado Pago com sua credencial
+sdk = mercadopago.SDK(os.getenv("MERCADOPAGO_ACCESS_TOKEN"))
+
+# ... (suas outras rotas)
+
+# --- ROTA PARA GERAR O PAGAMENTO PIX DE UMA RESERVA ---
+@app.route("/api/reservations/<int:reservation_id>/create-payment", methods=["POST"])
+def create_reservation_payment(reservation_id):
+    # (Adicione a lógica de proteção com token JWT aqui para garantir que o usuário está logado)
+
+    # Aqui você buscaria os detalhes da reserva no seu banco, como o valor a ser pago
+    # Para o nosso teste, vamos usar um valor fixo de R$ 50.00
+    payment_amount = 50.00 
+
+    payment_data = {
+        "transaction_amount": payment_amount,
+        "description": f"Pagamento da reserva de espaço #{reservation_id}",
+        "payment_method_id": "pix",
+        "payer": {
+            "email": "test_user_123456@testuser.com", # Em um caso real, você pegaria o email do usuário logado
+        },
+        "notification_url": "https://ec95-2804-1128-bd48-a100-6c8e-cbc6-5dc6-f044.ngrok-free.app/api/webhooks/mercadopago",
+        "external_reference": str(reservation_id) # MUITO IMPORTANTE: Link entre o pagamento e sua reserva
+    }
+
+    try:
+        payment_response = sdk.payment().create(payment_data)
+        payment = payment_response["response"]
+        
+        pix_data = {
+            "payment_id": payment["id"],
+            "qr_code_image": payment["point_of_interaction"]["transaction_data"]["qr_code_base64"],
+            "qr_code_text": payment["point_of_interaction"]["transaction_data"]["qr_code"]
+        }
+        return jsonify(pix_data), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Erro ao criar pagamento PIX: {e}"}), 500
+
+
+# --- ROTA PARA RECEBER NOTIFICAÇÕES (WEBHOOK) DO MERCADO PAGO ---
+@app.route("/api/webhooks/mercadopago", methods=["POST"])
+def mercadopago_webhook():
+    data = request.json
+    # A notificação do Mercado Pago vem com o tipo de evento e o id do dado
+    if data and data.get("type") == "payment":
+        payment_id = data["data"]["id"]
+        print(f"Recebida notificação para o pagamento ID: {payment_id}")
+
+        # Com o ID do pagamento, você busca o status real no Mercado Pago para confirmar
+        payment_info_response = sdk.payment().get(payment_id)
+        payment_info = payment_info_response["response"]
+
+        if payment_info["status"] == "approved":
+            # Se o pagamento foi aprovado, pegamos nossa referência interna
+            reservation_id = payment_info["external_reference"]
+            print(f"Pagamento {payment_id} aprovado! Atualizando reserva {reservation_id}...")
+
+            # Atualiza o status da reserva no seu banco de dados
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE reservations SET status = 'Aprovada' WHERE id = %s", (reservation_id,))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                print(f"Reserva {reservation_id} atualizada para 'Aprovada'.")
+
+    return jsonify({"status": "ok"}), 200
 
 # --- ROTAS DE AUTENTICAÇÃO ---
 @app.route("/api/register", methods=["POST"])
 def register_user():
     data = request.get_json()
-    if not all(k in data for k in ['name', 'email', 'password']): return jsonify({"error": "Dados incompletos"}), 400
+    # Adicionamos 'apt' aos campos obrigatórios
+    if not all(k in data for k in ['name', 'email', 'password', 'apt']): 
+        return jsonify({"error": "Dados incompletos"}), 400
+        
     conn = get_db_connection()
     if not conn: return jsonify({"error": "Erro de conexão"}), 500
     cursor = conn.cursor()
@@ -38,12 +113,17 @@ def register_user():
     if cursor.fetchone():
         cursor.close(); conn.close()
         return jsonify({"error": "Este email já está cadastrado"}), 409
+    
     hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
+    # Adicionamos 'apt' ao comando INSERT
+    sql = "INSERT INTO users (name, email, password_hash, apt) VALUES (%s, %s, %s, %s)"
     try:
-        cursor.execute("INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)", (data['name'], data['email'], hashed_password))
+        cursor.execute(sql, (data['name'], data['email'], hashed_password, data['apt']))
         conn.commit()
-    except Exception as e: conn.rollback(); return jsonify({"error": str(e)}), 500
-    finally: cursor.close(); conn.close()
+    except Exception as e: 
+        conn.rollback(); return jsonify({"error": str(e)}), 500
+    finally: 
+        cursor.close(); conn.close()
     return jsonify({"message": "Usuário registrado com sucesso!"}), 201
 
 @app.route("/api/login", methods=["POST"])
@@ -56,20 +136,36 @@ def login_user():
     cursor.execute("SELECT * FROM users WHERE email = %s", (data['email'],))
     user = cursor.fetchone()
     
+    # Validação do usuário e senha
     if user and bcrypt.check_password_hash(user['password_hash'], data['password']):
-        token = jwt.encode(
-            {'user_id': user['id'], 'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)}, 
-            app.config['JWT_SECRET_KEY'], 
-            algorithm=app.config['JWT_ALGORITHM']
-        )
+        
+        # --- NOVA VALIDAÇÃO ---
+        # Verifica se o usuário está ativo
+        if not user['active']:
+            cursor.close(); conn.close()
+            return jsonify({"error": "Este usuário está inativo. Contate a administração."}), 403 # 403 Forbidden
+
+        # --- NOVO PAYLOAD DO TOKEN ---
+        # Incluímos a permissão (role) e o apt no token
+        token_payload = {
+            'user_id': user['id'],
+            'role': user['permission'],
+            'apt': user['apt'],
+            'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+        }
+        token = jwt.encode(token_payload, app.config['JWT_SECRET_KEY'], algorithm=app.config['JWT_ALGORITHM'])
+        
         cursor.close(); conn.close()
         
-        # --- ALTERAÇÃO PRINCIPAL AQUI ---
-        # Agora retornamos o token E os dados do usuário
+        # --- NOVA RESPOSTA ---
+        # Retornamos o token E os dados do usuário para o frontend usar
         return jsonify({
             "access_token": token,
             "user": {
-                "name": user['name']
+                "name": user['name'],
+                "email": user['email'],
+                "apt": user['apt'],
+                "role": user['permission']
             }
         }), 200
     else:
@@ -124,29 +220,96 @@ def add_occurrence():
     return jsonify({"message": "Ocorrência registrada com sucesso!"}), 201
 
 @app.route("/api/reservations", methods=["POST"])
+@app.route("/api/reservations", methods=["POST"])
+# Em backend/app.py
+
+@app.route("/api/reservations", methods=["POST"])
+@app.route("/api/reservations", methods=["POST"])
 def add_reservation():
+    # 1. Proteção da Rota e Extração do ID do Usuário
     token = request.headers.get('Authorization', '').split(" ")[1] if 'Authorization' in request.headers else None
     if not token: return jsonify({"error": "Token não fornecido"}), 401
     try:
         decoded_token = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=[app.config['JWT_ALGORITHM']])
         user_id = decoded_token['user_id']
-    except: return jsonify({"error": "Token inválido ou expirado"}), 401
+    except:
+        return jsonify({"error": "Token inválido ou expirado"}), 401
+        
     data = request.get_json()
-    if not all(k in data for k in ['space_name', 'reservation_date']): return jsonify({"error": "Dados incompletos"}), 400
+    if not all(k in data for k in ['space_name', 'reservation_date']):
+        return jsonify({"error": "Dados incompletos"}), 400
+
     conn = get_db_connection()
-    if not conn: return jsonify({"error": "Erro de conexão"}), 500
-    cursor = conn.cursor()
-    sql = "INSERT INTO reservations (space_name, reservation_date, reserved_by_user_id) VALUES (%s, %s, %s)"
+    if not conn: return jsonify({"error": "Erro de conexão com o banco"}), 500
+    cursor = conn.cursor(dictionary=True) # Usamos dictionary=True para facilitar
+
+    # --- NOVA LÓGICA PARA BUSCAR O EMAIL DO USUÁRIO ---
     try:
-        cursor.execute(sql, (data['space_name'], data['reservation_date'], user_id))
+        cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
+        user_record = cursor.fetchone()
+        if not user_record:
+            raise Exception("Usuário do token não encontrado no banco de dados.")
+        user_email = user_record['email']
+    except Exception as e:
+        cursor.close(); conn.close()
+        return jsonify({"error": f"Erro ao buscar dados do usuário: {e}"}), 500
+    # --------------------------------------------------
+
+    # Insere a reserva no SEU banco de dados com status 'Pendente'
+    sql_insert = "INSERT INTO reservations (space_name, reservation_date, reserved_by_user_id, status) VALUES (%s, %s, %s, 'Pendente')"
+    reservation_id = None
+    try:
+        cursor.execute(sql_insert, (data['space_name'], data['reservation_date'], user_id))
+        reservation_id = cursor.lastrowid
         conn.commit()
+        print(f"Reserva #{reservation_id} criada como 'Pendente'.")
     except mysql.connector.Error as err:
         conn.rollback()
-        if err.errno == 1062: return jsonify({"error": "Este espaço já está reservado para a data selecionada."}), 409
-        return jsonify({"error": str(err)}), 500
-    finally: cursor.close(); conn.close()
-    return jsonify({"message": "Reserva solicitada com sucesso!"}), 201
+        if err.errno == 1062:
+            return jsonify({"error": "Este espaço já está reservado para a data selecionada."}), 409
+        return jsonify({"error": f"Erro no banco de dados: {err}"}), 500
+    
+    # Gera a cobrança PIX no Mercado Pago
+    if reservation_id:
+        try:
+            # --- VALOR DA COBRANÇA ALTERADO ---
+            payment_amount = 0.10 # Valor alterado para 10 centavos
+            
+            payment_data = {
+                "transaction_amount": payment_amount,
+                "description": f"Taxa de reserva para {data['space_name']} em {data['reservation_date']}",
+                "payment_method_id": "pix",
+                "payer": {
+                    # --- E-MAIL DINÂMICO APLICADO ---
+                    "email": user_email, 
+                },
+                "notification_url": f"https://ec95-2804-1128-bd48-a100-6c8e-cbc6-5dc6-f044.ngrok-free.app/api/webhooks/mercadopago",
+                "external_reference": str(reservation_id)
+            }
+            
+            payment_response = sdk.payment().create(payment_data)
 
+            if payment_response["status"] == 201:
+                payment = payment_response["response"]
+                print(f"PIX Criado para reserva #{reservation_id}. Payment ID: {payment['id']}")
+                pix_data = {
+                    "payment_id": payment["id"],
+                    "qr_code_image": payment["point_of_interaction"]["transaction_data"]["qr_code_base64"],
+                    "qr_code_text": payment["point_of_interaction"]["transaction_data"]["qr_code"]
+                }
+                return jsonify(pix_data), 201
+            else:
+                raise Exception(payment_response["response"].get("message", "Erro desconhecido do Mercado Pago"))
+
+        except Exception as e:
+            print(f"Erro ao criar pagamento PIX: {e}")
+            # Idealmente, aqui você deveria cancelar a reserva que foi criada, mas para já, retornamos o erro.
+            return jsonify({"error": "A reserva foi criada, mas houve uma falha ao gerar o pagamento PIX."}), 500
+        finally:
+            cursor.close()
+            conn.close()
+    
+    return jsonify({"error": "Ocorreu um erro inesperado ao processar a reserva."}), 500
 # --- ROTAS DE LEITURA (GET) PARA O DASHBOARD ---
 @app.route("/api/my-reservations", methods=["GET"])
 def get_my_reservations():
@@ -212,7 +375,37 @@ def get_occurrences_summary():
     
     return jsonify(summary)
 
+@app.route("/api/reservations/booked-dates", methods=["GET"])
+def get_booked_dates():
+    # Protegemos a rota da mesma forma
+    token = request.headers.get('Authorization', '').split(" ")[1] if 'Authorization' in request.headers else None
+    if not token: return jsonify({"error": "Token não fornecido"}), 401
+    try:
+        jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=[app.config['JWT_ALGORITHM']])
+    except:
+        return jsonify({"error": "Token inválido ou expirado"}), 401
+    
+    # Pegamos o nome do espaço dos parâmetros da URL (ex: ?space=Salão%20de%20Festas)
+    space_name = request.args.get('space')
+    if not space_name:
+        return jsonify({"error": "Nome do espaço não fornecido"}), 400
 
+    conn = get_db_connection()
+    if not conn: return jsonify({"error": "Erro de conexão"}), 500
+    cursor = conn.cursor()
+
+    # Buscamos as datas onde o status é 'Aprovada' (ou o que você definir como "reservado")
+    # Retornamos apenas a data da reserva
+    sql = "SELECT reservation_date FROM reservations WHERE space_name = %s AND status = 'Aprovada'"
+    cursor.execute(sql, (space_name,))
+    
+    # Convertemos o resultado para uma lista de strings no formato 'YYYY-MM-DD'
+    booked_dates = [item[0].strftime('%Y-%m-%d') for item in cursor.fetchall()]
+    
+    cursor.close()
+    conn.close()
+    
+    return jsonify(booked_dates)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

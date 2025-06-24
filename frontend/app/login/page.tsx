@@ -25,11 +25,11 @@ export default function LoginPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Falha no login.');
       
-      // --- ALTERAÇÃO PRINCIPAL AQUI ---
+      // --- MUDANÇA APLICADA AQUI ---
       if (data.access_token && data.user) {
         localStorage.setItem('token', data.access_token);
-        // Salvamos o nome do usuário para usar na próxima página
-        localStorage.setItem('userName', data.user.name);
+        // Salvamos o objeto do usuário completo como uma string JSON
+        localStorage.setItem('user', JSON.stringify(data.user));
         router.push('/dashboard');
       } else {
         throw new Error('Resposta de login inválida do servidor.');
@@ -52,7 +52,6 @@ export default function LoginPage() {
             <input
               type="text"
               id="email"
-              // CORREÇÃO APLICADA AQUI
               className="shadow appearance-none border rounded w-full py-3 px-4 text-gray-900 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500"
               placeholder="seuemail@exemplo.com ou seu CPF"
               value={email}
@@ -65,7 +64,6 @@ export default function LoginPage() {
             <input
               type="password"
               id="password"
-              // CORREÇÃO APLICADA AQUI
               className="shadow appearance-none border rounded w-full py-3 px-4 text-gray-900 mb-3 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500"
               placeholder="********"
               value={password}

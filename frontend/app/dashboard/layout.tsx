@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
+import Script from 'next/script'; // Mantemos o script do Tawk.to
 
 export default function DashboardLayout({
   children,
@@ -21,10 +22,16 @@ export default function DashboardLayout({
     } else {
       setIsVerified(true);
       
-      const userName = localStorage.getItem('userName');
-      if (userName) {
-        setWelcomeMessage(`Bem-vindo(a), ${userName}!`);
-        localStorage.removeItem('userName');
+      // --- MUDANÇA APLICADA AQUI ---
+      const userString = localStorage.getItem('user');
+      if (userString) {
+        // Convertemos a string de volta para um objeto
+        const user = JSON.parse(userString);
+        // Montamos a nova mensagem de boas-vindas
+        setWelcomeMessage(`Bem-vindo(a), ${user.name} (Apto ${user.apt})!`);
+        // Removemos para não mostrar a mensagem em cada recarregamento
+        localStorage.removeItem('user'); 
+        
         const timer = setTimeout(() => {
           setWelcomeMessage('');
         }, 3000);
@@ -53,6 +60,13 @@ export default function DashboardLayout({
           {welcomeMessage}
         </div>
       )}
+      
+      {/* O script do Tawk.to deve ficar no layout raiz (app/layout.tsx) para aparecer em todas as páginas
+          mas se quiser que apareça só na área logada, este é o lugar certo. */}
+      <Script
+        strategy="lazyOnload"
+        src="https://embed.tawk.to/685981392f458f191216deb9/1iueq1i2o"
+      />
     </div>
   );
 }

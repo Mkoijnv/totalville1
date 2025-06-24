@@ -10,14 +10,20 @@ def setup_database():
     cursor = conn.cursor()
     
     try:
-        print("Verificando/Criando tabela 'users'...")
+        print("Verificando/Criando tabela 'users' com novas colunas...")
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL,
-            email VARCHAR(100) NOT NULL UNIQUE, password_hash VARCHAR(255) NOT NULL,
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            email VARCHAR(100) NOT NULL UNIQUE,
+            password_hash VARCHAR(255) NOT NULL,
+            apt VARCHAR(20) NOT NULL,
+            permission VARCHAR(50) NOT NULL DEFAULT 'Morador',
+            active BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB;
         """)
+        print("Tabela 'users' OK.")
         
         print("Verificando/Criando tabela 'visitors'...")
         cursor.execute("""
