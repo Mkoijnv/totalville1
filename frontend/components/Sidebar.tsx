@@ -33,7 +33,7 @@ export default function Sidebar() {
     { name: 'Ocorrências', href: '/dashboard/ocorrencias', icon: <FiAlertTriangle size={24} /> },
     { name: 'Reservas', href: '/dashboard/reservas', icon: <FiCalendar size={24} /> },
     { name: 'Encomendas', href: '/dashboard/encomendas', icon: <FiPackage size={24} /> },
-    { name: 'Cadastrar Morador', href: '/dashboard/moradores', icon: <FiUserPlus size={24} /> },
+    { name: 'Moradores', href: '/dashboard/moradores', icon: <FiUserPlus size={24} /> },
     { name: 'Gerenciar Unidades', href: '/dashboard/unidades', icon: <FiHome size={24} /> }
   ];
 

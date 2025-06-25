@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation'; // Importa useParams para pegar o ID
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 
-// Definição da interface Unidade (mantida)
 interface Unidade {
   id: number;
   tipo_unidade: string;
@@ -13,7 +12,6 @@ interface Unidade {
   andar: number | null;
 }
 
-// Nova interface para o Morador (baseada no seu DB)
 interface Morador {
   id: number;
   nome_completo: string;
@@ -27,7 +25,6 @@ interface Morador {
   ativo: boolean;
 }
 
-// Componentes auxiliares Input (incorporado no mesmo arquivo)
 function Input({ label, name, value, onChange, type = 'text', placeholder = '', required = false, readOnly = false }: {
   label: string;
   name: string;
@@ -52,13 +49,14 @@ function Input({ label, name, value, onChange, type = 'text', placeholder = '', 
         required={required}
         placeholder={placeholder}
         readOnly={readOnly}
-        className={`mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${readOnly ? 'bg-gray-100 cursor-not-allowed' : 'text-gray-900'}`}
+        className={`mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+          readOnly ? 'bg-gray-100 cursor-not-allowed' : 'bg-white text-gray-800'
+        }`}
       />
     </div>
   );
 }
 
-// Componente auxiliar Select (incorporado no mesmo arquivo)
 function Select({ label, name, value, onChange, required = false, children }: {
   label: string;
   name: string;
@@ -78,7 +76,7 @@ function Select({ label, name, value, onChange, required = false, children }: {
         value={value}
         onChange={onChange}
         required={required}
-        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-800"
       >
         {children}
       </select>
@@ -86,17 +84,16 @@ function Select({ label, name, value, onChange, required = false, children }: {
   );
 }
 
-
 export default function EditarMoradorPage() {
   const router = useRouter();
-  const params = useParams(); // Hook para acessar os parâmetros da URL
-  const moradorId = params.id ? parseInt(params.id as string) : null; // Pega o ID do morador da URL
+  const params = useParams();
+  const moradorId = params.id ? parseInt(params.id as string) : null;
 
   const [formData, setFormData] = useState({
     nome_completo: '',
     email: '',
-    password: '', // Senha não deve ser pré-preenchida para edição
-    confirm_password: '', // Apenas para validação no frontend
+    password: '',
+    confirm_password: '',
     cpf: '',
     rg: '',
     profissao: '',
@@ -106,12 +103,11 @@ export default function EditarMoradorPage() {
   });
 
   const [unidades, setUnidades] = useState<Unidade[]>([]);
-  const [loading, setLoading] = useState(true); // Loading inicial para carregar dados do morador e unidades
-  const [formLoading, setFormLoading] = useState(false); // Loading para submissão do formulário
+  const [loading, setLoading] = useState(true);
+  const [formLoading, setFormLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Efeito para buscar UNIDADES e o MORADOR específico ao carregar a página
   useEffect(() => {
     const fetchData = async () => {
       setError(null);
@@ -132,7 +128,6 @@ export default function EditarMoradorPage() {
       }
 
       try {
-        // Busca Unidades
         const resUnidades = await fetch('http://127.0.0.1:5000/api/unidades', {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         });
@@ -142,8 +137,7 @@ export default function EditarMoradorPage() {
         const unidadesData: Unidade[] = await resUnidades.json();
         setUnidades(unidadesData);
 
-        // Busca dados do Morador
-        const resMorador = await fetch(`http://127.0.0.1:5000/api/moradores/${moradorId}`, { // Nova rota GET by ID
+        const resMorador = await fetch(`http://127.0.0.1:5000/api/moradores/${moradorId}`, {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         });
         if (!resMorador.ok) {
@@ -151,18 +145,17 @@ export default function EditarMoradorPage() {
         }
         const moradorData: Morador = await resMorador.json();
         
-        // Preenche o formulário com os dados do morador
         setFormData({
             nome_completo: moradorData.nome_completo,
             email: moradorData.email,
-            password: '', // Senha nunca é pre-preenchida por segurança
+            password: '',
             confirm_password: '', 
             cpf: moradorData.cpf || '',
             rg: moradorData.rg || '',
             profissao: moradorData.profissao || '',
             whatsapp: moradorData.whatsapp || '',
             tipo_morador: moradorData.tipo_morador,
-            unidade_id: String(moradorData.unidade_id), // Converte para string para o select
+            unidade_id: String(moradorData.unidade_id),
         });
 
       } catch (err: any) {
@@ -173,9 +166,8 @@ export default function EditarMoradorPage() {
       }
     };
     fetchData();
-  }, [router, moradorId]); // moradorId como dependência para recarregar se o ID da URL mudar
+  }, [router, moradorId]);
 
-  // Função genérica para lidar com mudanças nos campos do formulário
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -187,7 +179,6 @@ export default function EditarMoradorPage() {
     setError(null);
     setSuccess(null);
 
-    // Validações de senha apenas se algo foi digitado
     if (formData.password.length > 0 && formData.password !== formData.confirm_password) {
       setError("As senhas não coincidem.");
       setFormLoading(false);
@@ -219,11 +210,11 @@ export default function EditarMoradorPage() {
         tipo_morador: formData.tipo_morador
       };
 
-      if (formData.password.length > 0) { // Inclui a senha apenas se ela foi alterada
+      if (formData.password.length > 0) {
         payload.password = formData.password;
       }
 
-      const response = await fetch(`http://127.0.0.1:5000/api/moradores/${moradorId}`, { // Endpoint PUT
+      const response = await fetch(`http://127.0.0.1:5000/api/moradores/${moradorId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload),
@@ -236,7 +227,7 @@ export default function EditarMoradorPage() {
       }
 
       setSuccess('Morador atualizado com sucesso!');
-      setTimeout(() => router.push('/dashboard/moradores'), 2000); // Redireciona para a lista
+      setTimeout(() => router.push('/dashboard/moradores'), 2000);
     } catch (err: any) {
       console.error("Erro completo:", err);
       setError(err.message || 'Falha ao atualizar morador.');
@@ -274,7 +265,7 @@ export default function EditarMoradorPage() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Dados Pessoais</h2>
+              <h2 className="text-lg font-semibold text-gray-800 bg-gray-50 p-2 rounded">Dados Pessoais</h2>
               
               <Input 
                 label="Nome Completo" 
@@ -310,7 +301,7 @@ export default function EditarMoradorPage() {
             </div>
 
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Dados Residenciais</h2>
+              <h2 className="text-lg font-semibold text-gray-800 bg-gray-50 p-2 rounded">Dados Residenciais</h2>
               
               <Select 
                 label="Unidade" 
@@ -358,7 +349,7 @@ export default function EditarMoradorPage() {
           </div>
 
           <div className="space-y-4 border-t pt-4">
-            <h2 className="text-lg font-semibold">Acesso ao Sistema (Deixe em branco para não alterar a senha)</h2>
+            <h2 className="text-lg font-semibold text-gray-800 bg-gray-50 p-2 rounded">Acesso ao Sistema (Deixe em branco para não alterar a senha)</h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input 
@@ -367,7 +358,6 @@ export default function EditarMoradorPage() {
                 value={formData.password} 
                 onChange={handleChange} 
                 type="password" 
-                required={false} // Senha é opcional na edição
               />
               
               <Input 
@@ -376,7 +366,6 @@ export default function EditarMoradorPage() {
                 value={formData.confirm_password} 
                 onChange={handleChange} 
                 type="password" 
-                required={false} // Confirmação é opcional na edição
               />
             </div>
           </div>
@@ -384,7 +373,7 @@ export default function EditarMoradorPage() {
           <div className="flex justify-end pt-4 space-x-4">
             <button 
                 type="button" 
-                onClick={() => router.push('/dashboard/moradores')} // Volta para a lista
+                onClick={() => router.push('/dashboard/moradores')}
                 className="inline-flex justify-center py-2 px-6 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
                 Cancelar

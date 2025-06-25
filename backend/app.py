@@ -28,7 +28,7 @@ def get_db_connection():
             host=os.getenv('DB_HOST'), 
             user=os.getenv('DB_USER'),
             password=os.getenv('DB_PASSWORD'), 
-            database=os.getenv('DB_NAME') # Alterado para usar variável de ambiente DB_NAME
+            database=os.getenv('DB_NAME') 
         )
         return conn
     except mysql.connector.Error as err:
@@ -61,10 +61,6 @@ def token_required(f):
             decoded_token = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=[app.config['JWT_ALGORITHM']])
             
             # Verifica a expiração do token
-            # A expiração é geralmente tratada automaticamente pelo jwt.decode se 'exp' estiver no payload
-            # mas podemos adicionar uma verificação explícita se quisermos mais controle ou mensagens personalizadas.
-            # No entanto, jwt.decode já lança jwt.ExpiredSignatureError se expirado.
-            
             request.user_identity = decoded_token # Armazena a identidade do usuário na requisição para acesso posterior
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token expirado. Faça login novamente."}), 401
@@ -93,8 +89,7 @@ def create_reservation_payment(reserva_id):
         "payer": {
             "email": "test_user_123456@testuser.com", # TODO: Se esta rota for usada por um usuário real, obtenha o e-mail do usuário logado/associado à reserva.
         },
-        # ATENÇÃO: URL ngrok ATUALIZADA e caminho corrigido para /api/webhooks/mercadopago
-        "notification_url": f"https://67ff-2804-1128-bd48-a100-84f0-612c-d46b-f966.ngrok-free.app/api/webhooks/mercadopago", 
+        "notification_url": f"https://67ff-2804-1128-bd48-a100-84f0-612c-d46b-f966.ngrok-free.app/api/webhooks/mercadopago", # TODO: ATUALIZE ESTA URL COM SEU ENDEREÇO NGROK REAL 
         "external_reference": str(reserva_id)
     }
 
@@ -120,7 +115,6 @@ def get_logged_in_user_data():
     Retorna os dados do usuário logado a partir do token JWT.
     """
     try:
-        # A identidade do usuário é acessada via request.user_identity, definida no decorador token_required
         current_user_identity = request.user_identity 
         
         user_id = current_user_identity.get('user_id')
@@ -241,7 +235,7 @@ def login_user():
     
     conn = get_db_connection()
     if not conn: 
-        print("LOGIN ERROR: Failed to get DB connection.") # Added log
+        print("LOGIN ERROR: Failed to get DB connection.") 
         return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
     
     cursor = conn.cursor(dictionary=True)
@@ -252,7 +246,7 @@ def login_user():
 
     try:
         # Primeiro tenta autenticar como administrador
-        print(f"LOGIN: Attempting to authenticate email: {data['email']} as ADMIN.") # Added log
+        print(f"LOGIN: Attempting to authenticate email: {data['email']} as ADMIN.") 
         cursor.execute("""
             SELECT id, nome, email, senha_hash, 'ADMIN' as role
             FROM administradores 
@@ -264,12 +258,12 @@ def login_user():
             user_name = usuario['nome']
             user_email = usuario['email']
             user_id = usuario['id']
-            user_apt = 'ADMIN' # Valor padrão para administradores no token
-            print(f"LOGIN: User {user_email} found as ADMIN.") # Added log
+            user_apt = 'ADMIN' 
+            print(f"LOGIN: User {user_email} found as ADMIN.") 
 
         # Se não encontrou administrador, tenta como morador
         if not usuario:
-            print(f"LOGIN: User not ADMIN, attempting as MORADOR: {data['email']}.") # Added log
+            print(f"LOGIN: User not ADMIN, attempting as MORADOR: {data['email']}.") 
             cursor.execute("""
                 SELECT m.id, m.nome_completo as nome, m.email, m.senha_hash, 
                        u.numero as apartamento, 'MORADOR' as role
@@ -284,17 +278,17 @@ def login_user():
                 user_email = usuario['email']
                 user_id = usuario['id']
                 user_apt = usuario['apartamento']
-                print(f"LOGIN: User {user_email} found as MORADOR in apartment {user_apt}.") # Added log
+                print(f"LOGIN: User {user_email} found as MORADOR in apartment {user_apt}.") 
 
         # Se não encontrou nenhum usuário válido
         if not usuario:
-            print(f"LOGIN ERROR: No active user found for email: {data['email']}.") # Added log
+            print(f"LOGIN ERROR: No active user found for email: {data['email']}.") 
             return jsonify({"error": "Email ou senha inválidos."}), 401
         
         # Verifica a senha
-        print(f"LOGIN: Checking password for user {user_email}.") # Added log
+        print(f"LOGIN: Checking password for user {user_email}.") 
         if bcrypt.check_password_hash(usuario['senha_hash'], data['password']):
-            print(f"LOGIN: Password correct for user {user_email}. Generating token.") # Added log
+            print(f"LOGIN: Password correct for user {user_email}. Generating token.") 
             # Payload para o token JWT manual
             access_token_payload = {
                 'user_id': user_id,
@@ -316,13 +310,13 @@ def login_user():
             if user_role == 'MORADOR':
                 response_data['user']['apartment'] = user_apt
             
-            print(f"LOGIN SUCCESS: User {user_email} logged in. Role: {user_role}.") # Added log
+            print(f"LOGIN SUCCESS: User {user_email} logged in. Role: {user_role}.") 
             return jsonify(response_data), 200
         else:
-            print(f"LOGIN ERROR: Incorrect password for user {user_email}.") # Added log
+            print(f"LOGIN ERROR: Incorrect password for user {user_email}.") 
             return jsonify({"error": "Email ou senha inválidos."}), 401
     except Exception as e:
-        print(f"LOGIN CRITICAL ERROR: {e}") # Added more general error log
+        print(f"LOGIN CRITICAL ERROR: {e}") 
         return jsonify({"error": "Erro interno do servidor durante o login."}), 500
     finally:
         if cursor:
@@ -357,6 +351,44 @@ def get_unidades():
         return jsonify({"error": f"Erro ao buscar unidades: {err}"}), 500
     except Exception as e:
         print(f"Erro interno do servidor ao buscar unidades: {e}")
+        return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+@app.route("/api/unidades/<int:unidade_id>", methods=["GET"]) # NOVA ROTA GET BY ID para Unidades
+@token_required
+def get_unidade_by_id(unidade_id):
+    """
+    Retorna os dados de uma unidade específica pelo ID.
+    Requer autenticação JWT.
+    """
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+        
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, tipo_unidade, bloco, numero, andar
+            FROM unidades
+            WHERE id = %s
+        """, (unidade_id,))
+        unidade = cursor.fetchone()
+
+        if not unidade:
+            return jsonify({"error": "Unidade não encontrada."}), 404
+        
+        return jsonify(unidade), 200
+    except mysql.connector.Error as err:
+        print(f"Erro no banco de dados ao buscar unidade por ID: {err}")
+        return jsonify({"error": f"Erro ao buscar unidade: {err}"}), 500
+    except Exception as e:
+        print(f"Erro interno do servidor ao buscar unidade por ID: {e}")
         return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
     finally:
         if cursor:
@@ -470,7 +502,7 @@ def get_moradores():
         if conn and conn.is_connected():
             conn.close()
 
-@app.route("/api/moradores/<int:morador_id>", methods=["GET"]) # NOVA ROTA GET BY ID
+@app.route("/api/moradores/<int:morador_id>", methods=["GET"]) # Rota para obter morador por ID
 @token_required
 def get_morador_by_id(morador_id):
     """
@@ -643,6 +675,223 @@ def toggle_morador_status(morador_id):
         if conn and conn.is_connected():
             conn.close()
 
+# --- ROTAS PARA ENCOMENDAS ---
+@app.route("/api/encomendas", methods=["POST"])
+@token_required
+def add_encomenda():
+    """
+    Cadastra uma nova encomenda.
+    Requer autenticação JWT (espera admin para essa ação).
+    """
+    current_user_identity = request.user_identity
+    registrado_por_admin_id = current_user_identity.get('user_id')
+    user_role = current_user_identity.get('role')
+
+    # Opcional: Apenas administradores podem cadastrar encomendas
+    if user_role != 'ADMIN':
+        return jsonify({"error": "Apenas administradores podem cadastrar encomendas."}), 403
+
+    data = request.get_json()
+    # Adicionado 'unidade_destino_id' aos campos obrigatórios
+    required_fields = ['remetente', 'data_chegada', 'morador_id', 'unidade_destino_id'] 
+    if not all(k in data for k in required_fields):
+        missing = [k for k in required_fields if k not in data]
+        return jsonify({"error": f"Dados incompletos. Campos obrigatórios: {', '.join(missing)}"}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor()
+
+    try:
+        # Verifica se o morador_id existe (sem verificar 'ativo' para o placeholder)
+        cursor.execute("SELECT id FROM moradores WHERE id = %s", (data['morador_id'],))
+        morador_exists = cursor.fetchone()
+        if not morador_exists: 
+            return jsonify({"error": "Morador destinatário não encontrado."}), 400
+        
+        # Verifica se a unidade_destino_id existe
+        cursor.execute("SELECT id FROM unidades WHERE id = %s", (data['unidade_destino_id'],))
+        if not cursor.fetchone():
+            return jsonify({"error": "Unidade de destino não encontrada ou inválida."}), 400
+
+        # SQL INSERT agora inclui 'unidade_destino_id'
+        sql = """
+            INSERT INTO encomendas (remetente, descricao, data_chegada, morador_id, unidade_destino_id, registrado_por_admin_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(sql, (
+            data['remetente'],
+            data.get('descricao'),
+            data['data_chegada'],
+            data['morador_id'],
+            data['unidade_destino_id'], # Salvando o novo campo
+            registrado_por_admin_id
+        ))
+        conn.commit()
+        return jsonify({"message": "Encomenda cadastrada com sucesso!"}), 201
+    except mysql.connector.Error as err:
+        conn.rollback()
+        print(f"Erro no banco de dados ao adicionar encomenda: {err}")
+        return jsonify({"error": f"Erro no banco de dados: {str(err)}"}), 500
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro interno ao adicionar encomenda: {e}")
+        return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+@app.route("/api/encomendas", methods=["GET"])
+@token_required
+def get_encomendas():
+    """
+    Retorna uma lista de todas as encomendas, com opção de busca.
+    Requer autenticação JWT (espera admin para essa ação).
+    """
+    current_user_identity = request.user_identity
+    user_role = current_user_identity.get('role')
+
+    if user_role != 'ADMIN':
+        return jsonify({"error": "Apenas administradores podem listar todas as encomendas."}), 403
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        search_term = request.args.get('search_term')
+        
+        # SQL principal para buscar encomendas
+        sql_query = """
+            SELECT 
+                e.id, e.remetente, e.descricao, e.data_chegada, e.status, e.data_retirada, 
+                e.morador_id, e.unidade_destino_id, e.registrado_por_admin_id, e.criado_em,
+                m.nome_completo as morador_nome,
+                u.numero as morador_unidade_numero,
+                u.bloco as morador_unidade_bloco
+            FROM encomendas e
+            LEFT JOIN moradores m ON e.morador_id = m.id
+            LEFT JOIN unidades u ON e.unidade_destino_id = u.id -- JOIN com unidade_destino_id
+        """
+        where_clauses = []
+        query_params = []
+
+        if search_term:
+            search_pattern = f"%{search_term}%"
+            # Inclui e.descricao na busca
+            where_clauses.append("""
+                (e.remetente LIKE %s OR 
+                 e.descricao LIKE %s OR 
+                 m.nome_completo LIKE %s OR 
+                 u.numero LIKE %s OR 
+                 u.bloco LIKE %s)
+            """)
+            query_params.extend([search_pattern, search_pattern, search_pattern, search_pattern, search_pattern])
+
+        if where_clauses:
+            sql_query += " WHERE " + " AND ".join(where_clauses)
+        
+        sql_query += " ORDER BY e.data_chegada DESC, e.status ASC"
+
+        cursor.execute(sql_query, tuple(query_params))
+        encomendas = cursor.fetchall()
+
+        return jsonify(encomendas), 200
+    except mysql.connector.Error as err:
+        print(f"Erro no banco de dados ao buscar encomendas: {err}")
+        return jsonify({"error": f"Erro ao buscar encomendas: {str(err)}"}), 500
+    except Exception as e:
+        print(f"Erro interno do servidor ao buscar encomendas: {e}")
+        return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+@app.route("/api/encomendas/<int:encomenda_id>/retirada", methods=["PUT"])
+@token_required
+def register_encomenda_retirada(encomenda_id):
+    """
+    Registra a retirada de uma encomenda, autenticando o morador com CPF e senha.
+    Requer autenticação JWT (admin para realizar a operação).
+    """
+    current_user_identity = request.user_identity
+    user_role = current_user_identity.get('role')
+
+    if user_role != 'ADMIN':
+        return jsonify({"error": "Apenas administradores podem registrar a retirada de encomendas."}), 403
+
+    data = request.get_json()
+    # Adicionado 'unidade_destino_id' aos campos obrigatórios do payload de retirada
+    if not all(k in data for k in ['cpf', 'password', 'unidade_destino_id']): 
+        return jsonify({"error": "CPF, senha do morador e unidade de destino são obrigatórios para retirada."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor(dictionary=True) # Alterado para dictionary=True para facilitar acesso
+
+    try:
+        # 1. Buscar a encomenda e verificar seu status, e também obter morador_id e unidade_destino_id
+        cursor.execute("""
+            SELECT e.id, e.morador_id, e.unidade_destino_id, e.status
+            FROM encomendas e
+            WHERE e.id = %s
+        """, (encomenda_id,))
+        encomenda_info = cursor.fetchone()
+
+        if not encomenda_info:
+            return jsonify({"error": "Encomenda não encontrada."}), 404
+        if encomenda_info['status'] == 'Retirada':
+            return jsonify({"error": "Encomenda já foi retirada."}), 409
+
+        # 2. Autenticar o morador que está tentando retirar com CPF e senha
+        # A busca agora inclui a unidade_id do morador autenticado
+        cursor.execute("""
+            SELECT id, senha_hash, unidade_id
+            FROM moradores
+            WHERE cpf = %s AND ativo = TRUE
+        """, (data['cpf'],))
+        morador_auth_data = cursor.fetchone()
+
+        if not morador_auth_data or not bcrypt.check_password_hash(morador_auth_data['senha_hash'], data['password']):
+            return jsonify({"error": "CPF ou senha do morador inválidos."}), 401
+        
+        # 3. VERIFICAR se o morador autenticado pertence à UNIDADE DE DESTINO da encomenda
+        # Usa o 'unidade_destino_id' do payload da requisição para verificar a qual unidade a encomenda pertence
+        if morador_auth_data['unidade_id'] != data['unidade_destino_id']:
+            return jsonify({"error": "O morador autenticado não pertence à unidade de destino desta encomenda."}), 403
+
+        # 4. Registrar a retirada (se tudo ok)
+        sql_update = """
+            UPDATE encomendas
+            SET status = 'Retirada', data_retirada = CURDATE()
+            WHERE id = %s
+        """
+        cursor.execute(sql_update, (encomenda_id,))
+        conn.commit()
+
+        return jsonify({"message": "Retirada da encomenda registrada com sucesso!"}), 200
+
+    except mysql.connector.Error as err:
+        conn.rollback()
+        print(f"Erro no banco de dados ao registrar retirada: {err}")
+        return jsonify({"error": f"Erro no banco de dados: {str(err)}"}), 500
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro interno ao registrar retirada: {e}")
+        return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
 
 # --- ROTAS DE CRIAÇÃO (POST) (Já existentes, mantidas como estão ou ajustadas) ---
 @app.route("/api/visitantes", methods=["POST"])
@@ -796,7 +1045,7 @@ def add_reservation():
         morador_record = cursor.fetchone()
         if not morador_record:
             raise Exception("Morador não encontrado para o ID fornecido no token.")
-        user_email = morador_record['email'] # E-mail do morador obtido aqui
+        user_email = morador_record['email'] 
         
         sql_insert = """
             INSERT INTO reservas 
@@ -810,13 +1059,12 @@ def add_reservation():
         print(f"Reserva #{reserva_id} criada como 'Pendente'.")
         
         if reserva_id:
-            payment_amount = 0.10 # Valor simbólico para teste. Mude para o valor real da taxa de reserva.
+            payment_amount = 0.10 
             payment_data = {
                 "transaction_amount": payment_amount,
                 "description": f"Taxa de reserva para {data['space_name']} em {data['reservation_date']}",
                 "payment_method_id": "pix",
-                "payer": { "email": user_email }, # O e-mail do morador já está sendo enviado aqui
-                # ATENÇÃO: URL ngrok ATUALIZADA e caminho corrigido para /api/webhooks/mercadopago
+                "payer": { "email": user_email }, 
                 "notification_url": f"https://67ff-2804-1128-bd48-a100-84f0-612c-d46b-f966.ngrok-free.app/api/webhooks/mercadopago", 
                 "external_reference": str(reserva_id)
             }

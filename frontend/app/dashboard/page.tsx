@@ -28,7 +28,11 @@ interface Package {
   status: 'Na Administração' | 'Retirada';
   retrievalDate: string | null;
 }
-
+<head>
+        <title>Total Ville 1 Online - Seu Condomínio Conectado</title>
+        <meta name="description" content="Plataforma exclusiva para moradores do Condomínio Total Ville 1: reserve espaços, libere visitantes e receba avisos importantes." />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='green'><path d='M12 2L3 9v12h18V9L12 2zm0 2.691l7 5.25v9.059h-14V7.941l7-5.25zM15 16h-2v-4h-2v4H9v-6h6v6z'/></svg>" type="image/svg+xml" />
+      </head>
 
 export default function DashboardHomePage() {
   // --- Estados para guardar os dados dinâmicos ---
@@ -157,6 +161,7 @@ useEffect(() => {
                   <tr key={index} className="border-t"><td className="py-2 px-4 text-gray-800">{vis.name}</td><td className="py-2 px-4 text-gray-700">{vis.cpf}</td><td className="py-2 px-4 text-gray-700">{formatDate(vis.release_date)}</td></tr>
                 ))}
               </tbody>
+              
             </table>
           </div>
         ) : (<p className="text-gray-600">Nenhum visitante liberado por você no momento.</p>)}

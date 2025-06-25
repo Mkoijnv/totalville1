@@ -6,7 +6,8 @@ from app import get_db_connection
 def configurar_banco_de_dados():
     """
     Cria e configura as tabelas do banco de dados com a estrutura correta,
-    incluindo 'unidades' e a relação com 'moradores'.
+    incluindo 'unidades', 'moradores', e 'encomendas' com a nova coluna.
+    Também insere o morador placeholder "Ainda Não Cadastrado".
     """
     conn = get_db_connection()
     if not conn:
@@ -67,7 +68,7 @@ def configurar_banco_de_dados():
         ) ENGINE=InnoDB;
         """)
         print("-> Tabela 'moradores' OK.")
-        
+
         # 4. Tabela de Visitantes
         print("Verificando/Criando tabela 'visitantes'...")
         cursor.execute("""
@@ -122,6 +123,65 @@ def configurar_banco_de_dados():
         """)
         print("-> Tabela 'reservas' OK.")
 
+        # 7. Tabela de Encomendas
+        print("Verificando/Criando tabela 'encomendas'...")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS encomendas (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            remetente VARCHAR(100) NOT NULL,
+            descricao TEXT,
+            data_chegada DATE NOT NULL,
+            status ENUM('Na Administração', 'Retirada') NOT NULL DEFAULT 'Na Administração',
+            data_retirada DATE,
+            morador_id INT, -- Morador a quem a encomenda se destina (pode ser o placeholder)
+            unidade_destino_id INT NOT NULL, -- NOVO CAMPO: ID da unidade de destino da encomenda
+            registrado_por_admin_id INT, -- Quem registrou (se tiver tabela de admins)
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (morador_id) REFERENCES moradores(id) ON DELETE SET NULL,
+            FOREIGN KEY (unidade_destino_id) REFERENCES unidades(id) ON DELETE CASCADE, -- Chave estrangeira para a unidade de destino
+            FOREIGN KEY (registrado_por_admin_id) REFERENCES administradores(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB;
+        """)
+        print("-> Tabela 'encomendas' OK.")
+
+        # --- INSERÇÕES INICIAIS ---
+
+        # Inserir morador placeholder "Ainda Não Cadastrado"
+        # O ID deve ser capturado no frontend e backend para uso na lógica.
+        # CPF e email são únicos, então usamos INSERT IGNORE para não duplicar se já existir.
+        UNREGISTERED_MORADOR_EMAIL = 'nao_cadastrado@placeholder.com'
+        UNREGISTERED_MORADOR_CPF = '000.000.000-00'
+        # Senha "123" hasheada
+        UNREGISTERED_MORADOR_HASH = '$2b$12$hScMEf.D2VWJInYcXM4Zt.yufmvJhxbNEYPmuoVPAmsIpOjc4rIQS'
+
+        print(f"Inserindo/Verificando morador placeholder '{UNREGISTERED_MORADOR_EMAIL}'...")
+        cursor.execute("""
+            INSERT IGNORE INTO moradores (id, nome_completo, email, senha_hash, unidade_id, cpf, rg, profissao, whatsapp, tipo_morador, ativo)
+            VALUES (1, 'Morador Não Cadastrado', %s, %s, NULL, %s, NULL, NULL, NULL, 'outro', FALSE)
+        """, (UNREGISTERED_MORADOR_EMAIL, UNREGISTERED_MORADOR_HASH, UNREGISTERED_MORADOR_CPF))
+        # Se o ID 1 já estiver ocupado ou você quiser um ID específico maior, 
+        # remova 'id' do INSERT e recupere o cursor.lastrowid para saber qual ID foi gerado.
+        # No frontend, você terá que buscar esse ID ou defini-lo estaticamente se for fixo no seu DB.
+        
+        # Opcional: Inserir um administrador padrão se não existir
+        ADMIN_EMAIL = 'admin@condominio.com'
+        ADMIN_HASH = '$2b$12$hScMEf.D2VWJInYcXM4Zt.yufmvJhxbNEYPmuoVPAmsIpOjc4rIQS' # Senha "123"
+        print(f"Inserindo/Verificando administrador padrão '{ADMIN_EMAIL}'...")
+        cursor.execute("""
+            INSERT IGNORE INTO administradores (nome, email, senha_hash, permissao, ativo)
+            VALUES ('Administrador Master', %s, %s, 'ADM', TRUE)
+        """, (ADMIN_EMAIL, ADMIN_HASH))
+
+        # Opcional: Inserir algumas unidades de exemplo se não existirem
+        print("Inserindo/Verificando unidades de exemplo...")
+        cursor.execute("""
+            INSERT IGNORE INTO unidades (tipo_unidade, bloco, numero, andar, ocupada) VALUES 
+            ('apartamento', 'A', '101', 1, TRUE),
+            ('apartamento', 'A', '102', 1, FALSE),
+            ('casa', NULL, '01', NULL, TRUE),
+            ('casa', NULL, '02', NULL, FALSE);
+        """)
+        
         conn.commit()
         print("\n✅ Configuração do banco de dados (versão correta) concluída com sucesso!")
 
@@ -129,8 +189,10 @@ def configurar_banco_de_dados():
         print(f"❌ Erro durante a configuração do banco: {e}")
         conn.rollback()
     finally:
-        cursor.close()
-        conn.close()
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
         print("🔌 Conexão com o MySQL foi fechada.")
 
 
