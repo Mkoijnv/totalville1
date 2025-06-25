@@ -4,7 +4,7 @@
 
 'use client'; // This directive is necessary for Next.js App Router components using client-side features.
 
-import { useState, useEffect } from 'react'; // React hooks for state and lifecycle management
+import { useState, useEffect, useRef } from 'react'; // React hooks for state and lifecycle management
 import { useRouter } from 'next/navigation'; // Next.js hook for client-side navigation
 import Link from 'next/link'; // Next.js component for client-side navigation
 // Icons from react-icons/fi for visual actions (add, check, package, search, close)
@@ -23,7 +23,7 @@ function Input({ label, name, value, onChange, type = 'text', placeholder = '', 
 }) {
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-bold text-gray-900"> {/* Improved legibility: font-bold text-gray-900 */}
+      <label htmlFor={name} className="block text-sm font-bold text-gray-900"> 
         {label}{required && ' *'}
       </label>
       <input
@@ -52,7 +52,7 @@ function Select({ label, name, value, onChange, required = false, children }: {
 }) {
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-bold text-gray-900"> {/* Improved legibility: font-bold text-gray-900 */}
+      <label htmlFor={name} className="block text-sm font-bold text-gray-900">
         {label}{required && ' *'}
       </label>
       <select
@@ -71,20 +71,20 @@ function Select({ label, name, value, onChange, required = false, children }: {
 
 // Interface representing an Encomenda (Package) record from the backend
 interface Encomenda {
-    id: number; // Unique ID of the package
-    remetente: string; // Sender of the package
-    descricao: string | null; // Optional description of the package
-    data_chegada: string; // Date of package arrival (YYYY-MM-DD format)
-    status: 'Na Administração' | 'Retirada'; // Current status of the package
-    data_retirada: string | null; // Date of package pickup
-    morador_id: number; // ID of the resident the package is for
-    unidade_destino_id: number; // ID of the destination unit
-    morador_nome?: string; // Resident's name (for display, populated on frontend)
-    morador_unidade_numero?: string; // Unit number (for display)
-    morador_unidade_bloco?: string | null; // Unit block (for display)
-    morador_unidade_tipo?: string; // Unit type ('apartamento' or 'casa') (for display)
-    registrado_por_admin_id: number | null; // ID of the admin who registered it
-    criado_em: string; // Creation timestamp
+    id: number;
+    remetente: string;
+    descricao: string | null;
+    data_chegada: string;
+    status: 'Na Administração' | 'Retirada';
+    data_retirada: string | null;
+    morador_id: number;
+    unidade_destino_id: number;
+    morador_nome?: string;
+    morador_unidade_numero?: string | null; // Permite null
+    morador_unidade_bloco?: string | null;
+    morador_unidade_tipo?: string | null; // Permite null
+    registrado_por_admin_id: number | null;
+    criado_em: string;
 }
 
 // Interface for resident options in dropdowns
@@ -106,7 +106,6 @@ interface UnidadeOption {
 }
 
 // Placeholder ID for "Unregistered Resident" in the database.
-// IMPORTANT: Replace with the actual ID from your database for the "Morador Não Cadastrado" entry.
 const UNREGISTERED_MORADOR_PLACEHOLDER_ID = 4; 
 
 // Main component for Encomendas (Packages) management page
@@ -125,6 +124,11 @@ export default function EncomendasPage() {
     morador_id: '',
     unidade_destino_id: '', 
   });
+
+  // Estados para a busca dinâmica de moradores
+  const [moradorSearch, setMoradorSearch] = useState('');
+  const [showMoradorList, setShowMoradorList] = useState(false);
+  const moradorSearchRef = useRef<HTMLDivElement>(null);
 
   const [withdrawalModalOpen, setWithdrawalModalOpen] = useState(false); // Controls visibility of the pickup confirmation modal
   const [selectedEncomendaForWithdrawal, setSelectedEncomendaForWithdrawal] = useState<Encomenda | null>(null); // Package selected for pickup
@@ -187,14 +191,13 @@ export default function EncomendasPage() {
           unidade_id: morador.unidade_id, 
           unidade_numero: unidadeInfo ? unidadeInfo.numero : null,
           unidade_bloco: unidadeInfo ? unidadeInfo.bloco : null,
-          unidade_tipo: unidadeInfo ? unidadeInfo.tipo_unidade : null, // Store unit type for display
+          unidade_tipo: unidadeInfo ? unidadeInfo.tipo_unidade : null,
         };
       });
       setMoradoresOptions(moradoresOptionsData);
 
-      // 3. Fetch Packages (with search term if provided)
-      const queryParams = searchTerm ? `?search_term=${encodeURIComponent(searchTerm)}` : '';
-      const resEncomendas = await fetch(`http://127.0.0.1:5000/api/encomendas${queryParams}`, { 
+      // 3. Fetch Packages
+      const resEncomendas = await fetch(`http://127.0.0.1:5000/api/encomendas`, { 
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       });
       if (!resEncomendas.ok) {
@@ -209,13 +212,12 @@ export default function EncomendasPage() {
 
         return {
           ...encomenda,
-          // Determine resident's display name: use description for placeholder, actual name otherwise
           morador_nome: morador && morador.id === UNREGISTERED_MORADOR_PLACEHOLDER_ID 
                         ? (encomenda.descricao || 'Morador Não Cadastrado') 
                         : (morador ? morador.nome_completo : 'Morador Desconhecido/Removido'),
           morador_unidade_numero: unidadeDestino ? unidadeDestino.numero : 'N/A', 
           morador_unidade_bloco: unidadeDestino ? unidadeDestino.bloco : null, 
-          morador_unidade_tipo: unidadeDestino ? unidadeDestino.tipo_unidade : null, // Store unit type for destination unit
+          morador_unidade_tipo: unidadeDestino ? unidadeDestino.tipo_unidade : null,
         };
       });
       setEncomendas(encomendasData);
@@ -231,7 +233,7 @@ export default function EncomendasPage() {
   // Effect hook to fetch data on component mount or when dependencies change
   useEffect(() => {
     fetchData(); // Initial data fetch
-  }, [router, success, searchTerm]); // Refetch data when router changes, an operation succeeds, or search term changes
+  }, [router, success]); // Refetch data only when router or success changes
 
   // Handle changes in the package registration form inputs
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -259,7 +261,7 @@ export default function EncomendasPage() {
         setFormLoading(false);
         return;
     }
-    // Determine the final destination unit ID: either from the form (for unregistered) or from the selected resident's unit
+    
     const moradorSelecionado = moradoresOptions.find(m => m.id === parseInt(formData.morador_id));
     const finalUnidadeDestinoId = parseInt(formData.morador_id) === UNREGISTERED_MORADOR_PLACEHOLDER_ID
         ? parseInt(formData.unidade_destino_id)
@@ -294,6 +296,7 @@ export default function EncomendasPage() {
       setSuccess('Encomenda cadastrada com sucesso!');
       // Clear the form fields after successful registration
       setFormData({ remetente: '', descricao: '', data_chegada: '', morador_id: '', unidade_destino_id: '' }); 
+      setMoradorSearch(''); // Clear morador search input
       setShowForm(false); // Hide form and show list
       fetchData(); // Refetch data to update the package list
       setTimeout(() => setSuccess(null), 3000); // Hide success message after 3 seconds
@@ -328,7 +331,6 @@ export default function EncomendasPage() {
     setSuccess(null); // Clear previous success messages
 
     const token = localStorage.getItem('token'); // Retrieve authentication token
-    // Admin authentication check (this action is usually restricted to admins)
     if (!token) {
         setWithdrawalError('Autenticação de administrador necessária. Faça login novamente.');
         setWithdrawalLoading(false);
@@ -342,7 +344,7 @@ export default function EncomendasPage() {
         body: JSON.stringify({ 
             cpf: withdrawalAuth.cpf, 
             password: withdrawalAuth.password,
-            unidade_destino_id: selectedEncomendaForWithdrawal.unidade_destino_id // Pass destination unit ID to backend
+            unidade_destino_id: selectedEncomendaForWithdrawal.unidade_destino_id
         }),
       });
 
@@ -363,22 +365,20 @@ export default function EncomendasPage() {
     }
   };
 
-  // Filter packages based on search term
+  // Filter packages based on search term (client-side filtering)
   const filteredEncomendas = encomendas.filter(encomenda => {
     const lowerCaseSearchTerm = searchTerm.toLowerCase();
-    // Determine the resident's display name for search purposes
     const moradorDisplayName = encomenda.morador_id === UNREGISTERED_MORADOR_PLACEHOLDER_ID 
-                               ? (encomenda.descricao || 'morador não cadastrado') // Use description if unregistered
-                               : (encomenda.morador_nome || ''); // Use resident's name if registered
+                               ? (encomenda.descricao || 'morador não cadastrado') 
+                               : (encomenda.morador_nome || '');
     
-    // Format unit display for search purposes
     const unidadeDisplay = `${encomenda.morador_unidade_tipo === 'apartamento' ? 'apto' : 'casa'} ${encomenda.morador_unidade_bloco ? `${encomenda.morador_unidade_bloco}-` : ''}${encomenda.morador_unidade_numero}`.toLowerCase();
 
     return (
-      encomenda.remetente.toLowerCase().includes(lowerCaseSearchTerm) || // Search by sender
-      moradorDisplayName.toLowerCase().includes(lowerCaseSearchTerm) || // Search by resident display name (or description)
-      unidadeDisplay.includes(lowerCaseSearchTerm) || // Search by unit display (e.g., "apto 101")
-      (encomenda.descricao && encomenda.descricao.toLowerCase().includes(lowerCaseSearchTerm)) // Also search original description field
+      encomenda.remetente.toLowerCase().includes(lowerCaseSearchTerm) || 
+      moradorDisplayName.toLowerCase().includes(lowerCaseSearchTerm) || 
+      unidadeDisplay.includes(lowerCaseSearchTerm) || 
+      (encomenda.descricao && encomenda.descricao.toLowerCase().includes(lowerCaseSearchTerm))
     );
   });
 
@@ -389,6 +389,20 @@ export default function EncomendasPage() {
     const userTimezoneOffset = date.getTimezoneOffset() * 60000;
     return new Date(date.getTime() + userTimezoneOffset).toLocaleDateString('pt-BR');
   };
+
+  // Fechar lista de moradores ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moradorSearchRef.current && !moradorSearchRef.current.contains(event.target as Node)) {
+        setShowMoradorList(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Conditional rendering based on loading and error states
   if (loading) return <p className="text-center text-gray-600 p-8">Carregando encomendas...</p>;
@@ -427,26 +441,74 @@ export default function EncomendasPage() {
               <Input label="Descrição (Opcional)" name="descricao" value={formData.descricao} onChange={handleFormChange} placeholder="Ex: Pacote pequeno, Caixa grande" />
               <Input label="Data de Chegada" name="data_chegada" value={formData.data_chegada} onChange={handleFormChange} type="date" required />
               
-              <Select 
-                label="Morador Destinatário" // Label with improved legibility
-                name="morador_id" 
-                value={formData.morador_id} 
-                onChange={handleFormChange} 
+              {/* Campo de busca dinâmica para moradores */}
+              <div className="relative" ref={moradorSearchRef}>
+                <label className="block text-sm font-bold text-gray-900">
+                  Morador Destinatário *
+                </label>
+                <input
+                type="text"
+                value={moradorSearch}
+                onChange={(e) => {
+                    setMoradorSearch(e.target.value);
+                    setShowMoradorList(true);
+                }}
+                onFocus={() => setShowMoradorList(true)}
+                placeholder="Digite para buscar morador..."
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-3 px-4 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 text-lg" // Alterações aqui
                 required
-              >
-                <option value="">Selecione um morador</option>
-                {/* Option for "Unregistered Resident" */}
-                <option value={UNREGISTERED_MORADOR_PLACEHOLDER_ID}>Morador Não Cadastrado</option>
-                {moradoresOptions
-                  .filter(m => m.id !== UNREGISTERED_MORADOR_PLACEHOLDER_ID) 
-                  .map(morador => (
-                    <option key={morador.id} value={morador.id}>
-                      {morador.nome_completo} ({morador.unidade_tipo === 'apartamento' ? 'Apto' : 'Casa'} {morador.unidade_bloco ? `${morador.unidade_bloco}-` : ''}{morador.unidade_numero})
-                    </option>
-                  ))}
-              </Select>
+                />
+                
+                {showMoradorList && (
+                <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg mt-1 max-h-80 overflow-y-auto">
+                    {/* Opção para Morador Não Cadastrado */}
+                    <div 
+                    className="cursor-pointer p-3 text-base hover:bg-gray-100 border-b border-gray-100"
+                    onClick={() => {
+                        setFormData(prev => ({ 
+                        ...prev, 
+                        morador_id: String(UNREGISTERED_MORADOR_PLACEHOLDER_ID),
+                        unidade_destino_id: '' 
+                        }));
+                        setMoradorSearch('Morador Não Cadastrado');
+                        setShowMoradorList(false);
+                    }}
+                    >
+                    <span className="font-semibold text-gray-800">Morador Não Cadastrado</span>
+                    </div>
+                    
+                    {/* Lista de moradores filtrados */}
+                    {moradoresOptions
+                    .filter(morador => 
+                        morador.id !== UNREGISTERED_MORADOR_PLACEHOLDER_ID &&
+                        morador.nome_completo.toLowerCase().includes(moradorSearch.toLowerCase())
+                    )
+                    .map(morador => (
+                        <div 
+                        key={morador.id}
+                        className="cursor-pointer p-3 hover:bg-gray-100 border-b border-gray-100"
+                        onClick={() => {
+                            setFormData(prev => ({ 
+                            ...prev, 
+                            morador_id: String(morador.id),
+                            unidade_destino_id: '' 
+                            }));
+                            setMoradorSearch(`${morador.nome_completo} (${morador.unidade_tipo === 'apartamento' ? 'Apto' : 'Casa'} ${morador.unidade_bloco ? `${morador.unidade_bloco}-` : ''}${morador.unidade_numero})`);
+                            setShowMoradorList(false);
+                        }}
+                        >
+                        <div className="font-medium text-gray-900">{morador.nome_completo}</div>
+                        <div className="text-sm text-gray-600">
+                            {morador.unidade_tipo === 'apartamento' ? 'Apto' : 'Casa'} 
+                            {morador.unidade_bloco && ` ${morador.unidade_bloco}-`}{morador.unidade_numero}
+                        </div>
+                        </div>
+                    ))}
+                </div>
+                )}
+              </div>
 
-              {/* Unit Destination field, visible only if "Unregistered Resident" is selected */}
+              {/* Unidade de destino para morador não cadastrado */}
               {parseInt(formData.morador_id) === UNREGISTERED_MORADOR_PLACEHOLDER_ID && (
                 <Select
                   label="Unidade de Destino (para morador não cadastrado)"
@@ -480,7 +542,7 @@ export default function EncomendasPage() {
             </form>
           </>
         ) : (
-          // List of Packages
+          // Lista de Encomendas
           <>
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-2xl font-bold text-green-800">Gerenciar Encomendas</h1>
@@ -492,7 +554,7 @@ export default function EncomendasPage() {
                 </button>
             </div>
             
-            {/* Search Input */}
+            {/* Campo de busca (filtragem no cliente) */}
             <div className="mb-6">
                 <input
                     type="text"
@@ -503,7 +565,7 @@ export default function EncomendasPage() {
                 />
             </div>
 
-            {/* Package List Table */}
+            {/* Tabela de Encomendas */}
             {filteredEncomendas.length === 0 && !loading ? (
                 <p className="text-gray-600 text-center">Nenhuma encomenda encontrada.</p>
             ) : (
@@ -524,7 +586,6 @@ export default function EncomendasPage() {
                                 <tr key={encomenda.id} className="hover:bg-gray-50">
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{encomenda.remetente}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {/* Logic for "Morador Destino": display description for placeholder, name and unit type for registered resident */}
                                         {encomenda.morador_id === UNREGISTERED_MORADOR_PLACEHOLDER_ID ? (
                                             <>
                                                 {encomenda.descricao || 'Morador Não Cadastrado'}
@@ -550,7 +611,7 @@ export default function EncomendasPage() {
                                                 className="text-blue-600 hover:text-blue-900 mx-1"
                                                 title={`Registrar retirada de ${encomenda.remetente}`}
                                             >
-                                                <FiCheckCircle className="inline-block w-5 h-5" /> {/* Check/Pickup Icon */}
+                                                <FiCheckCircle className="inline-block w-5 h-5" />
                                             </button>
                                         )}
                                     </td>
@@ -564,7 +625,7 @@ export default function EncomendasPage() {
         )}
       </div>
 
-      {/* Pickup Confirmation Modal */}
+      {/* Modal de Confirmação de Retirada */}
       {withdrawalModalOpen && selectedEncomendaForWithdrawal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-2xl p-6 md:p-8 w-full max-w-md">

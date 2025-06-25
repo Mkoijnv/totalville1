@@ -18,6 +18,10 @@ app.config['JWT_ALGORITHM'] = 'HS256'
 # A duração do token ainda é útil para a lógica de expiração manual
 TOKEN_EXPIRATION_HOURS = 1 
 
+# ID do morador placeholder "Morador Não Cadastrado" - DEVE SER IGUAL AO DO SEU init_db.py
+# Por favor, verifique e atualize este ID com o valor REAL do seu banco de dados.
+UNREGISTERED_MORADOR_PLACEHOLDER_ID = 4 # ATUALIZE ESTE ID COM O ID REAL DO SEU BANCO!
+
 def get_db_connection():
     """
     Estabelece uma conexão com o banco de dados MySQL.
@@ -659,7 +663,7 @@ def toggle_morador_status(morador_id):
         conn.commit()
 
         status_msg = "ativado" if data['ativo'] else "inativado"
-        return jsonify({"message": f"Morador {status_msg} com sucesso!"}), 200
+        return jsonify({"message": "Morador %s com sucesso!" % status_msg}), 200
 
     except mysql.connector.Error as err:
         conn.rollback()
@@ -772,7 +776,8 @@ def get_encomendas():
                 e.morador_id, e.unidade_destino_id, e.registrado_por_admin_id, e.criado_em,
                 m.nome_completo as morador_nome,
                 u.numero as morador_unidade_numero,
-                u.bloco as morador_unidade_bloco
+                u.bloco as morador_unidade_bloco,
+                u.tipo_unidade as morador_unidade_tipo -- Adicionado o tipo da unidade
             FROM encomendas e
             LEFT JOIN moradores m ON e.morador_id = m.id
             LEFT JOIN unidades u ON e.unidade_destino_id = u.id -- JOIN com unidade_destino_id
@@ -788,9 +793,10 @@ def get_encomendas():
                  e.descricao LIKE %s OR 
                  m.nome_completo LIKE %s OR 
                  u.numero LIKE %s OR 
-                 u.bloco LIKE %s)
+                 u.bloco LIKE %s OR
+                 u.tipo_unidade LIKE %s) -- Incluído tipo_unidade na busca
             """)
-            query_params.extend([search_pattern, search_pattern, search_pattern, search_pattern, search_pattern])
+            query_params.extend([search_pattern, search_pattern, search_pattern, search_pattern, search_pattern, search_pattern])
 
         if where_clauses:
             sql_query += " WHERE " + " AND ".join(where_clauses)
@@ -803,7 +809,7 @@ def get_encomendas():
         return jsonify(encomendas), 200
     except mysql.connector.Error as err:
         print(f"Erro no banco de dados ao buscar encomendas: {err}")
-        return jsonify({"error": f"Erro ao buscar encomendas: {str(err)}"}), 500
+        return jsonify({"error": f"Erro ao buscar encomendas: {err}"}), 500
     except Exception as e:
         print(f"Erro interno do servidor ao buscar encomendas: {e}")
         return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
@@ -862,10 +868,19 @@ def register_encomenda_retirada(encomenda_id):
         if not morador_auth_data or not bcrypt.check_password_hash(morador_auth_data['senha_hash'], data['password']):
             return jsonify({"error": "CPF ou senha do morador inválidos."}), 401
         
-        # 3. VERIFICAR se o morador autenticado pertence à UNIDADE DE DESTINO da encomenda
-        # Usa o 'unidade_destino_id' do payload da requisição para verificar a qual unidade a encomenda pertence
-        if morador_auth_data['unidade_id'] != data['unidade_destino_id']:
-            return jsonify({"error": "O morador autenticado não pertence à unidade de destino desta encomenda."}), 403
+        # 3. VALIDAÇÃO DE UNIDADE (AJUSTADA PARA O PLACEHOLDER)
+        # Se a encomenda foi destinada ao morador placeholder, a validação de unidade é ignorada.
+        # Caso contrário, a unidade do morador autenticado DEVE corresponder à unidade de destino da encomenda.
+        if encomenda_info['morador_id'] != UNREGISTERED_MORADOR_PLACEHOLDER_ID:
+            if morador_auth_data['unidade_id'] != data['unidade_destino_id']:
+                print(f"ERRO RETIRADA: Unidade do morador autenticado ({morador_auth_data['unidade_id']}) NÃO corresponde à unidade de destino da encomenda ({data['unidade_destino_id']}).")
+                return jsonify({"error": "O morador autenticado não pertence à unidade de destino desta encomenda."}), 403
+        else:
+            print(f"DEBUG RETIRADA: Encomenda para morador placeholder ({UNREGISTERED_MORADOR_PLACEHOLDER_ID}). Validação de unidade IGNORADA.")
+            # Ainda assim, você pode querer adicionar uma validação mais permissiva aqui,
+            # por exemplo, que o morador autenticado pertença a *qualquer* unidade (se não for Nulo).
+            # Ou confiar totalmente na autenticação de CPF/senha para o placeholder.
+            pass # Nenhuma validação de unidade adicional se a encomenda é para o placeholder
 
         # 4. Registrar a retirada (se tudo ok)
         sql_update = """
