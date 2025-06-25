@@ -29,7 +29,7 @@ export default function OcorrenciasPage() {
     if (!token) { setError('Autenticação necessária.'); setLoading(false); return; }
     const payload = { occurrence_type: occurrenceType, custom_type: customType, description, location, occurrence_date: occurrenceDate };
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/occurrences', {
+      const response = await fetch('http://127.0.0.1:5000/api/ocorrencias', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload),

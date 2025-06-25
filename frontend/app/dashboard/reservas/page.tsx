@@ -43,49 +43,57 @@ export default function ReservasPage() {
 
   useEffect(() => {
     const fetchBookedDates = async () => {
-  if (!spaceName) return;
-  const token = localStorage.getItem('token');
-  if (!token) return;
-  try {
-    const response = await fetch(`http://127.0.0.1:5000/api/reservations/booked-dates?space=${encodeURIComponent(spaceName)}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!response.ok) {
-      throw new Error("Falha ao carregar datas reservadas.");
-    }
-    const datesAsStrings = await response.json();
-    
-    if (Array.isArray(datesAsStrings)) {
-      const validDates = datesAsStrings.map(dateStr => {
-        // Assume que a data vem no formato 'YYYY-MM-DD'
-        const [year, month, day] = dateStr.split('-').map(Number);
-        return new Date(year, month - 1, day);
-      });
-      setBookedDates(validDates);
-    } else {
-      setBookedDates([]);
-    }
-  } catch (error) {
-    console.error("Erro ao buscar datas reservadas:", error);
-    setError("Não foi possível carregar o calendário de datas.");
+      if (!spaceName) return;
+      const token = localStorage.getItem('token'); // Usa a chave 'token' consistentemente
+      if (!token) {
+        // Se não houver token, define um erro e não tenta buscar as datas
+        setError("Autenticação não encontrada para carregar datas reservadas. Faça login novamente.");
+        return;
+      }
+      try {
+        const response = await fetch(`http://127.0.0.1:5000/api/reservations/booked-dates?space=${encodeURIComponent(spaceName)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) {
+          // Tenta ler a mensagem de erro do backend se a resposta não for OK
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Falha ao carregar datas reservadas.");
+        }
+        const datesAsStrings = await response.json();
+        
+        if (Array.isArray(datesAsStrings)) {
+          const validDates = datesAsStrings.map(dateStr => {
+            // Assume que a data vem no formato 'YYYY-MM-DD' do backend
+            const [year, month, day] = dateStr.split('-').map(Number);
+            return new Date(year, month - 1, day); // month - 1 porque o mês em JS é base 0
+          });
+          setBookedDates(validDates);
+        } else {
+          setBookedDates([]); // Garante que bookedDates seja um array vazio se o backend não retornar um array
+        }
+      } catch (error: any) {
+        console.error("Erro ao buscar datas reservadas:", error);
+        setError(error.message || "Não foi possível carregar o calendário de datas.");
       }
     };
     fetchBookedDates();
-  }, [spaceName]);
+  }, [spaceName]); // spaceName como dependência para recarregar datas ao mudar o espaço
 
   const handleSpaceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedName = e.target.value;
     setSpaceName(selectedName);
     const selectedSpaceObject = availableSpaces.find(space => space.name === selectedName);
     if (selectedSpaceObject) setSelectedImage(selectedSpaceObject.image);
-    setReservationDate(null);
-    setTermsAccepted(false);
+    setReservationDate(null); // Limpa a data selecionada ao mudar o espaço
+    setTermsAccepted(false); // Desseleciona os termos
+    setError(null); // Limpa erros
+    setSuccess(null); // Limpa sucessos
   };
 
   const handleDateChange = (date: Date | null) => {
     setReservationDate(date);
     if (!date) {
-      setTermsAccepted(false);
+      setTermsAccepted(false); // Desseleciona os termos se a data for limpa
     }
   };
 
@@ -99,13 +107,14 @@ export default function ReservasPage() {
     setError(null); 
     setSuccess(null);
     
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token'); // Usa a chave 'token' consistentemente
     if (!token) { 
-      setError('Autenticação necessária.'); 
+      setError('Autenticação necessária. Faça login novamente.'); 
       setLoading(false); 
       return; 
     }
     
+    // Formata a data para 'YYYY-MM-DD' para enviar ao backend
     const formattedDate = new Date(Date.UTC(
       reservationDate.getFullYear(), 
       reservationDate.getMonth(), 
@@ -113,7 +122,8 @@ export default function ReservasPage() {
     )).toISOString().split('T')[0];
 
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/reservations', {
+      // CORREÇÃO: Altera a URL para o endpoint correto do backend: /api/reservas
+      const response = await fetch('http://127.0.0.1:5000/api/reservas', { // <-- Endpoint corrigido
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json', 
@@ -126,15 +136,28 @@ export default function ReservasPage() {
       });
       
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Falha ao solicitar reserva.');
+      if (!response.ok) {
+        // Lança um erro com a mensagem do backend para exibir ao usuário
+        throw new Error(data.error || 'Falha ao solicitar reserva.');
+      }
       
+      // Se a reserva for bem-sucedida, exibe o PIX
       setPixData(data);
       setIsPaymentModalOpen(true);
+      setSuccess('Reserva solicitada! Por favor, realize o pagamento via PIX.');
+      
+      // Resetar o formulário após a reserva
       setReservationDate(null);
       setTermsAccepted(false);
-      setBookedDates(prev => [...prev, reservationDate]);
+      
+      // Atualiza a lista de datas reservadas para incluir a nova reserva imediatamente no frontend
+      // Isso é otimista e pode ser refinado com uma nova chamada fetchBookedDates se preferir
+      setBookedDates(prev => [...prev, new Date(formattedDate)]); 
+      
     } catch (err: any) {
       setError(err.message);
+      // Se for um erro do backend que já indicava status (ex: 409 Conflito), o alert não deve ser usado.
+      // alert(`Erro: ${err.message}`); // Removido alert(), use o estado 'error' para feedback visual.
     } finally {
       setLoading(false);
     }
@@ -142,8 +165,14 @@ export default function ReservasPage() {
   
   const copyToClipboard = () => {
     if (pixData) {
-      navigator.clipboard.writeText(pixData.qr_code_text);
-      alert("Código PIX copiado!");
+      // Usar execCommand é mais compatível em ambientes de iframe (como o Canvas)
+      const el = document.createElement('textarea');
+      el.value = pixData.qr_code_text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setSuccess("Código PIX copiado!"); // Mensagem de sucesso para feedback
     }
   };
 
@@ -180,6 +209,10 @@ export default function ReservasPage() {
                   alt={`Imagem do espaço: ${spaceName}`} 
                   layout="fill" 
                   objectFit="contain" 
+                  // Adicionado onError para lidar com imagens que não carregam
+                  onError={(e) => { 
+                    (e.target as HTMLImageElement).src = 'https://placehold.co/600x400/CCCCCC/FFFFFF?text=Imagem+Nao+Disponivel'; 
+                  }}
                 />
               </div>
             </div>
@@ -239,7 +272,6 @@ export default function ReservasPage() {
       </div>
 
       {isPaymentModalOpen && pixData && (
-        // MODIFICAÇÃO: O fundo foi alterado para bg-black/50 (preto com 50% de opacidade)
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-2xl p-6 md:p-8 w-full max-w-md text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Pagamento via PIX</h2>
@@ -250,6 +282,10 @@ export default function ReservasPage() {
                 src={`data:image/png;base64,${pixData.qr_code_image}`} 
                 alt="PIX QR Code" 
                 className="border-4 border-gray-300 rounded-lg w-64 h-64 object-contain"
+                // Fallback para imagem caso o QR Code não carregue
+                onError={(e) => { 
+                    (e.target as HTMLImageElement).src = 'https://placehold.co/256x256/E0E0E0/808080?text=QR+Code+Indisponível'; 
+                }}
               />
             </div>
             
@@ -279,7 +315,7 @@ export default function ReservasPage() {
             <button 
               onClick={() => {
                 setIsPaymentModalOpen(false);
-                router.push('/dashboard');
+                router.push('/dashboard'); // Redireciona para o dashboard após fechar o modal
               }} 
               className="mt-6 w-full py-2.5 px-4 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
             >

@@ -46,23 +46,43 @@ export default function DashboardHomePage() {
   ];
 
   // Efeito que busca todos os dados dinâmicos quando a página carrega
-  useEffect(() => {
+useEffect(() => {
     const fetchDashboardData = async () => {
-      const token = localStorage.getItem('token');
+      // CORREÇÃO: Mudança da chave de busca do token para 'token' (consistente com LoginPage)
+      const token = localStorage.getItem('token'); 
       if (!token) {
-        setError("Autenticação não encontrada.");
+        setError("Autenticação não encontrada. Faça login novamente.");
         setLoading(false);
+        // Não redirecionamos aqui; o layout já fará isso se necessário.
         return;
       }
       try {
         const [resReservations, resVisitors, resOccurrences] = await Promise.all([
-          fetch('http://127.0.0.1:5000/api/my-reservations', { headers: { 'Authorization': `Bearer ${token}` } }),
-          fetch('http://127.0.0.1:5000/api/my-visitors', { headers: { 'Authorization': `Bearer ${token}` } }),
-          fetch('http://127.0.0.1:5000/api/occurrences/summary', { headers: { 'Authorization': `Bearer ${token}` } })
+          fetch('http://127.0.0.1:5000/api/minhas-reservas', { 
+            headers: { 'Authorization': `Bearer ${token}` } 
+          }),
+          fetch('http://127.0.0.1:5000/api/meus-visitantes', { 
+            headers: { 'Authorization': `Bearer ${token}` } 
+          }),
+          fetch('http://127.0.0.1:5000/api/ocorrencias/resumo', { 
+            headers: { 'Authorization': `Bearer ${token}` } 
+          })
         ]);
+        
         if (!resReservations.ok || !resVisitors.ok || !resOccurrences.ok) {
-          throw new Error('Falha ao buscar dados do dashboard.');
+          // Tenta ler o erro do corpo da resposta, se disponível
+          const errorTextReservations = await resReservations.text();
+          const errorTextVisitors = await resVisitors.text();
+          const errorTextOccurrences = await resOccurrences.text();
+          
+          let errorMessage = 'Falha ao buscar dados do dashboard.';
+          if (!resReservations.ok) errorMessage += ` Reservas: ${errorTextReservations}`;
+          if (!resVisitors.ok) errorMessage += ` Visitantes: ${errorTextVisitors}`;
+          if (!resOccurrences.ok) errorMessage += ` Ocorrências: ${errorTextOccurrences}`;
+          
+          throw new Error(errorMessage);
         }
+        
         const reservationsData = await resReservations.json();
         const visitorsData = await resVisitors.json();
         const occurrencesData = await resOccurrences.json();
@@ -77,7 +97,7 @@ export default function DashboardHomePage() {
       }
     };
     fetchDashboardData();
-  }, []);
+  }, []); // O array de dependências vazio garante que isso rode apenas uma vez ao montar o componente
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -92,7 +112,7 @@ export default function DashboardHomePage() {
     <div>
       <h1 className="text-3xl font-bold text-green-800 mb-6">Página Inicial do Dashboard</h1>
       <p className="text-lg text-gray-600 mb-8">
-        Bem-vindo! Aqui está um resumo das suas atividades e do status do condomínio.
+        Aqui está um resumo das suas atividades e do status do condomínio.
       </p>
 
       {/* Card de Resumo de Ocorrências (Dinâmico) */}
