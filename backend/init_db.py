@@ -1,17 +1,74 @@
+import os # Importar o módulo 'os'
 import mysql.connector
-# A importação pode falhar se 'app.py' ainda não estiver definido, mas é necessária para a execução em conjunto.
-# Em um cenário real, a configuração de conexão poderia estar em um arquivo separado.
-from app import get_db_connection 
+from dotenv import load_dotenv # Importar load_dotenv para carregar variáveis de ambiente
+
+# Carregar variáveis de ambiente do arquivo .env
+load_dotenv()
+
+# Definição de get_db_connection para este script, se não for importada de outro lugar.
+# Se você tiver uma função get_db_connection em app.py e quiser reusá-la,
+# certifique-se de que app.py não tenta importar nada deste arquivo.
+# Para este script funcionar de forma independente na criação do DB, é melhor definir a conexão aqui.
+def get_db_connection_for_config():
+    try:
+        conn = mysql.connector.connect(
+            host=os.getenv('DB_HOST'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            database=os.getenv('DB_NAME'), # O DB_NAME deve ser 'totalville1'
+            charset='utf8mb4' 
+        )
+        return conn
+    except mysql.connector.Error as err:
+        print(f"Erro ao conectar ao MySQL: {err}")
+        return None
 
 def configurar_banco_de_dados():
     """
     Cria e configura as tabelas do banco de dados com a estrutura correta,
     incluindo 'unidades', 'moradores', e 'encomendas' com a nova coluna.
     Também insere o morador placeholder "Ainda Não Cadastrado".
+    Adiciona a configuração utf8mb4 para a tabela 'avisos' e suas colunas.
+    Cria o banco de dados 'totalville1' se ele não existir.
     """
-    conn = get_db_connection()
+    # Para criar o banco de dados, precisamos nos conectar ao servidor MySQL sem especificar um DB inicialmente.
+    try:
+        temp_conn = mysql.connector.connect(
+            host=os.getenv('DB_HOST'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            # Não especifica o 'database' aqui, pois o objetivo é criá-lo
+            charset='utf8mb4' # Manter charset para a conexão
+        )
+        temp_cursor = temp_conn.cursor()
+
+        db_name = os.getenv('DB_NAME') # Usar a variável de ambiente para o nome do banco
+        if not db_name:
+            raise ValueError("Variável de ambiente 'DB_NAME' não definida. Por favor, defina-a no seu arquivo .env.")
+
+        print(f"Verificando/Criando banco de dados '{db_name}'...")
+        # Cria o banco de dados se não existir, com a codificação correta
+        temp_cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
+        print(f"-> Banco de dados '{db_name}' OK.")
+        
+        temp_cursor.close()
+        temp_conn.close()
+
+    except mysql.connector.Error as err:
+        print(f"❌ Erro ao conectar ou criar o banco de dados: {err}")
+        return
+    except ValueError as e:
+        print(f"❌ Erro de configuração: {e}")
+        return
+    except Exception as e:
+        print(f"❌ Erro inesperado ao criar o banco de dados: {e}")
+        return
+
+    # Agora, podemos obter a conexão para o banco de dados recém-criado/existente
+    # Usaremos a função de conexão definida neste script, 'get_db_connection_for_config'.
+    conn = get_db_connection_for_config()
     if not conn:
-        print("❌ Não foi possível conectar ao banco de dados para a configuração.")
+        print("❌ Não foi possível conectar ao banco de dados para a configuração das tabelas.")
         return
 
     cursor = conn.cursor()
@@ -91,7 +148,7 @@ def configurar_banco_de_dados():
         """)
         print("-> Tabela 'visitantes' OK.")
 
-        # 5. Ocorrências e 6. Reservas
+        # 5. Tabela de Ocorrências
         print("Verificando/Criando tabela 'ocorrencias'...")
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS ocorrencias (
@@ -108,6 +165,7 @@ def configurar_banco_de_dados():
         """)
         print("-> Tabela 'ocorrencias' OK.")
 
+        # 6. Tabela de Reservas
         print("Verificando/Criando tabela 'reservas'...")
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS reservas (
@@ -122,25 +180,28 @@ def configurar_banco_de_dados():
         ) ENGINE=InnoDB;
         """)
         print("-> Tabela 'reservas' OK.")
-        print("Verificando/Criando tabela 'encomendas'...")
+        
+        # 7. Tabela de Avisos (COM CONFIGURAÇÃO UTF8MB4)
+        print("Verificando/Criando tabela 'avisos'...")
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS avisos (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            titulo VARCHAR(255) NOT NULL,
-            conteudo TEXT NOT NULL,
-            imagem_url VARCHAR(2048), -- URL da imagem, opcional
-            prioridade INT DEFAULT 0, -- Para ordenar ou destacar avisos (ex: 0=normal, 1=alta)
+            titulo VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+            conteudo TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+            imagem_url VARCHAR(2048),
+            prioridade INT DEFAULT 0,
             data_publicacao DATETIME DEFAULT CURRENT_TIMESTAMP,
-            data_expiracao DATETIME, -- Opcional: quando o aviso deve parar de ser exibido
-            registrado_por_user_id INT, -- ID do administrador/portaria que postou
-            registrado_por_user_role VARCHAR(50), -- Papel de quem postou (ADM, PORTARIA)
-            ativo BOOLEAN NOT NULL DEFAULT TRUE, -- Para desativar o aviso sem deletá-lo
+            data_expiracao DATETIME,
+            registrado_por_user_id INT,
+            registrado_por_user_role VARCHAR(50),
+            ativo BOOLEAN NOT NULL DEFAULT TRUE,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (registrado_por_user_id) REFERENCES administradores(id) ON DELETE SET NULL
-        ) ENGINE=InnoDB;
+        ) ENGINE=InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
         """)
-        print("-> Tabela 'reservas' OK.")
-        # 7. Tabela de Encomendas
+        print("-> Tabela 'avisos' OK (com UTF8MB4).")
+
+        # 8. Tabela de Encomendas
         print("Verificando/Criando tabela 'encomendas'...")
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS encomendas (
@@ -150,12 +211,12 @@ def configurar_banco_de_dados():
             data_chegada DATE NOT NULL,
             status ENUM('Na Administração', 'Retirada') NOT NULL DEFAULT 'Na Administração',
             data_retirada DATE,
-            morador_id INT, -- Morador a quem a encomenda se destina (pode ser o placeholder)
-            unidade_destino_id INT NOT NULL, -- NOVO CAMPO: ID da unidade de destino da encomenda
-            registrado_por_admin_id INT, -- Quem registrou (se tiver tabela de admins)
+            morador_id INT,
+            unidade_destino_id INT NOT NULL,
+            registrado_por_admin_id INT,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (morador_id) REFERENCES moradores(id) ON DELETE SET NULL,
-            FOREIGN KEY (unidade_destino_id) REFERENCES unidades(id) ON DELETE CASCADE, -- Chave estrangeira para a unidade de destino
+            FOREIGN KEY (unidade_destino_id) REFERENCES unidades(id) ON DELETE CASCADE,
             FOREIGN KEY (registrado_por_admin_id) REFERENCES administradores(id) ON DELETE SET NULL
         ) ENGINE=InnoDB;
         """)
@@ -164,8 +225,6 @@ def configurar_banco_de_dados():
         # --- INSERÇÕES INICIAIS ---
 
         # Inserir morador placeholder "Ainda Não Cadastrado"
-        # O ID deve ser capturado no frontend e backend para uso na lógica.
-        # CPF e email são únicos, então usamos INSERT IGNORE para não duplicar se já existir.
         UNREGISTERED_MORADOR_EMAIL = 'nao_cadastrado@placeholder.com'
         UNREGISTERED_MORADOR_CPF = '000.000.000-00'
         # Senha "123" hasheada
@@ -176,9 +235,6 @@ def configurar_banco_de_dados():
             INSERT IGNORE INTO moradores (id, nome_completo, email, senha_hash, unidade_id, cpf, rg, profissao, whatsapp, tipo_morador, ativo)
             VALUES (1, 'Morador Não Cadastrado', %s, %s, NULL, %s, NULL, NULL, NULL, 'outro', FALSE)
         """, (UNREGISTERED_MORADOR_EMAIL, UNREGISTERED_MORADOR_HASH, UNREGISTERED_MORADOR_CPF))
-        # Se o ID 1 já estiver ocupado ou você quiser um ID específico maior, 
-        # remova 'id' do INSERT e recupere o cursor.lastrowid para saber qual ID foi gerado.
-        # No frontend, você terá que buscar esse ID ou defini-lo estaticamente se for fixo no seu DB.
         
         # Opcional: Inserir um administrador padrão se não existir
         ADMIN_EMAIL = 'admin@condominio.com'
@@ -200,10 +256,10 @@ def configurar_banco_de_dados():
         """)
         
         conn.commit()
-        print("\n✅ Configuração do banco de dados (versão correta) concluída com sucesso!")
+        print("\n✅ Configuração do banco de dados concluída com sucesso!")
 
     except mysql.connector.Error as e:
-        print(f"❌ Erro durante a configuração do banco: {e}")
+        print(f"❌ Erro durante a configuração das tabelas: {e}")
         conn.rollback()
     finally:
         if cursor:

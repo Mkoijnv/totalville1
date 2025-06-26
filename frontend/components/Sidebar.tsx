@@ -72,7 +72,7 @@ export default function Sidebar() {
         ...commonLinks,
         { name: 'Encomendas', href: '/dashboard/encomendas', icon: <FiPackage size={24} /> },
         { name: 'Moradores', href: '/dashboard/moradores', icon: <FiUserPlus size={24} /> },
-        { name: 'Avisos', href: '/dashboard/avisos', icon: <FiBell size={24} /> } // Rota e ícone ajustados
+        { name: 'Avisos', href: '/dashboard/avisos/novo', icon: <FiBell size={24} /> } // Rota e ícone ajustados
       ];
     } else if (userRole === 'PORTARIA') {
         return [

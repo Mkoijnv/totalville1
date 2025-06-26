@@ -103,10 +103,11 @@ interface UnidadeOption {
   numero: string; // Unit number
   bloco: string | null; // Unit block
   tipo_unidade: string; // Unit type ('apartamento' or 'casa')
+  andar?: string;
 }
 
 // Placeholder ID for "Unregistered Resident" in the database.
-const UNREGISTERED_MORADOR_PLACEHOLDER_ID = 4; 
+const UNREGISTERED_MORADOR_PLACEHOLDER_ID = 1; 
 
 // Main component for Encomendas (Packages) management page
 export default function EncomendasPage() {
@@ -140,7 +141,30 @@ export default function EncomendasPage() {
   const [formLoading, setFormLoading] = useState(false); // Loading state for form submission
   const [error, setError] = useState<string | null>(null); // General error message
   const [success, setSuccess] = useState<string | null>(null); // General success message
+const [unidadeSearch, setUnidadeSearch] = useState('');
+const [showUnidadeList, setShowUnidadeList] = useState(false);
+const unidadeSearchRef = useRef<HTMLDivElement>(null);
 
+const filteredUnidades = unidadesOptions.filter((u) => {
+  const termo = unidadeSearch.toLowerCase();
+  const label = u.tipo_unidade === 'apartamento'
+    ? `apto ${u.bloco || ''}-${u.numero}`.toLowerCase()
+    : `casa ${u.numero}`.toLowerCase();
+  return label.includes(termo);
+});
+
+// Fechar dropdown ao clicar fora
+useEffect(() => {
+  const handleClickOutside = (event: MouseEvent) => {
+    if (unidadeSearchRef.current && !unidadeSearchRef.current.contains(event.target as Node)) {
+      setShowUnidadeList(false);
+    }
+  };
+  document.addEventListener('mousedown', handleClickOutside);
+  return () => {
+    document.removeEventListener('mousedown', handleClickOutside);
+  };
+}, []);
   // Function to fetch all necessary data (packages, residents, units) from the backend
   const fetchData = async () => {
     setError(null); // Clear previous errors
@@ -508,37 +532,61 @@ export default function EncomendasPage() {
                 )}
               </div>
 
-              {/* Unidade de destino para morador não cadastrado */}
-              {parseInt(formData.morador_id) === UNREGISTERED_MORADOR_PLACEHOLDER_ID && (
-                <Select
-                  label="Unidade de Destino (para morador não cadastrado)"
-                  name="unidade_destino_id"
-                  value={formData.unidade_destino_id}
-                  onChange={handleFormChange}
-                  required
-                >
-                  <option value="">Selecione a unidade</option>
-                  {unidadesOptions.map(unidade => (
-                    <option key={unidade.id} value={unidade.id}>
-                      {unidade.tipo_unidade === 'apartamento'
-                        ? `Apto ${unidade.bloco || ''}-${unidade.numero}`
-                        : `Casa ${unidade.numero}`}
-                    </option>
-                  ))}
-                </Select>
-              )}
+  {/* Campo de busca dinâmica para Unidade de Destino */}
+  {parseInt(formData.morador_id) === UNREGISTERED_MORADOR_PLACEHOLDER_ID && (
+    <div className="relative" ref={unidadeSearchRef}>
+      <label htmlFor="unidade_search" className="block text-sm font-bold text-gray-900 mb-1">
+        Unidade de Destino (para morador não cadastrado) *
+      </label>
+      <input
+        type="text"
+        id="unidade_search"
+        value={unidadeSearch}
+        onChange={(e) => {
+          setUnidadeSearch(e.target.value);
+          setFormData(prev => ({ ...prev, unidade_destino_id: '' })); // limpa ID da unidade
+          setShowUnidadeList(true);
+        }}
+        onFocus={() => setShowUnidadeList(true)}
+        placeholder="Digite para buscar unidade (ex: Apto B-101, Casa 50)"
+        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+        required
+      />
 
-              <div className="text-right">
-                <button
-                  type="submit"
-                  disabled={formLoading}
-                  className="inline-flex justify-center py-2 px-6 border border-transparent shadow-sm text-sm font-medium rounded-md 
-                               text-white bg-green-700 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 
-                               disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {formLoading ? 'Registrando...' : 'Cadastrar Encomenda'}
-                </button>
+      {showUnidadeList && (
+        <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg mt-1 max-h-60 overflow-y-auto">
+          {filteredUnidades.length > 0 ? (
+            filteredUnidades.map(unidade => (
+              <div
+                key={unidade.id}
+                className="cursor-pointer p-3 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                onClick={() => {
+                  setFormData(prev => ({ ...prev, unidade_destino_id: String(unidade.id)}));
+                  setUnidadeSearch(
+                    unidade.tipo_unidade === 'apartamento'
+                      ? `Apto ${unidade.bloco ? `${unidade.bloco}-` : ''}${unidade.numero}`
+                      : `Casa ${unidade.numero}`
+                  );
+                  setShowUnidadeList(false);
+                }}
+              >
+                <div className="font-medium text-gray-900">
+                  {unidade.tipo_unidade === 'apartamento'
+                    ? `Apto ${unidade.bloco ? `${unidade.bloco}-` : ''}${unidade.numero}`
+                    : `Casa ${unidade.numero}`}
+                </div>
+                <div className="text-sm text-gray-600">
+                  {unidade.andar && `Andar: ${unidade.andar}`}
+                </div>
               </div>
+            ))
+          ) : (
+            <div className="p-3 text-gray-500">Nenhuma unidade encontrada.</div>
+          )}
+        </div>
+      )}
+    </div>
+  )}
             </form>
           </>
         ) : (

@@ -25,7 +25,8 @@ def get_db_connection():
             host=os.getenv('DB_HOST'),
             user=os.getenv('DB_USER'),
             password=os.getenv('DB_PASSWORD'),
-            database=os.getenv('DB_NAME')
+            database=os.getenv('DB_NAME'),
+            charset='utf8mb4'
         )
         return conn
     except mysql.connector.Error as err:
@@ -1252,7 +1253,7 @@ def add_aviso():
     try:
         sql = """
             INSERT INTO avisos (titulo, conteudo, imagem_url, prioridade, data_expiracao, data_publicacao, registrado_por_user_id, registrado_por_user_role, ativo)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE)
         """
         # Converte a data_expiracao para objeto datetime se não for nula, senão None
         data_expiracao_obj = datetime.datetime.strptime(data['data_expiracao'], '%Y-%m-%d') if data.get('data_expiracao') else None
@@ -1262,10 +1263,12 @@ def add_aviso():
             data['conteudo'],
             data.get('imagem_url'),
             data.get('prioridade', 0),
-            data_expiracao_obj, # Passa o objeto datetime ou None
-            datetime.datetime.utcnow(), # data_publicacao é sempre a data atual
+            data_expiracao_obj,
+            datetime.datetime.utcnow(),  # ESTE É O PARÂMETRO QUE FALTAVA
             registrado_por_user_id,
-            user_role
+            user_role, # ESTE É O NOVO PARÂMETRO ADICIONADO AGORA
+            # 'ativo' é TRUE por padrão na SQL, então não precisa ser passado como parâmetro.
+            # O número de %s e de parâmetros agora casa.
         ))
         conn.commit()
         return jsonify({"message": "Aviso postado com sucesso!"}), 201
@@ -1287,12 +1290,11 @@ def add_aviso():
 @token_required
 def get_all_avisos():
     """
-    Retorna a lista de todos os avisos (ativos e inativos), ordenados.
-    Apenas administradores e portarias podem ver todos os avisos. Moradores verão apenas os ativos no dashboard.
+    Retorna a lista de avisos ATIVOS.
+    Avisos inativos não serão retornados por esta rota, independentemente do papel do usuário.
+    Se precisar de uma rota para ADMIN/PORTARIA ver TODOS os avisos (ativos e inativos),
+    crie uma rota separada como /api/avisos/todos.
     """
-    current_user_identity = request.user_identity
-    user_role = current_user_identity.get('role')
-
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
@@ -1305,7 +1307,8 @@ def get_all_avisos():
                 data_publicacao, data_expiracao, registrado_por_user_id,
                 registrado_por_user_role, ativo
             FROM avisos
-            ORDER BY ativo DESC, prioridade DESC, data_publicacao DESC
+            WHERE ativo = TRUE -- Adicionado o filtro para avisos ativos
+            ORDER BY prioridade DESC, data_publicacao DESC
         """
         cursor.execute(sql)
         avisos = cursor.fetchall()
@@ -1318,7 +1321,7 @@ def get_all_avisos():
                 aviso['data_expiracao'] = aviso['data_expiracao'].isoformat()
         return jsonify(avisos), 200
     except Exception as e:
-        print(f"Erro ao buscar todos os avisos: {e}")
+        print(f"Erro ao buscar avisos: {e}")
         return jsonify({"error": f"Erro ao buscar avisos: {e}"}), 500
     finally:
         if cursor:
@@ -1448,15 +1451,18 @@ def inativate_aviso(aviso_id):
     cursor = conn.cursor()
 
     try:
-        aviso = Aviso.query.get(aviso_id) # Se estiver usando SQLAlchemy
-        # Ou com MySQL Connector:
+        # AQUI ESTÁ A CORREÇÃO: Remova a linha Aviso.query.get(aviso_id)
+        # e use apenas a lógica do cursor.execute
+
         cursor.execute("SELECT id, ativo FROM avisos WHERE id = %s", (aviso_id,))
-        aviso_data = cursor.fetchone()
+        aviso_data = cursor.fetchone() # Fetches a tuple (id, ativo_status)
+
         if not aviso_data:
             return jsonify({"error": "Aviso não encontrado."}), 404
-        if not aviso_data[1]: # aviso_data[1] é o campo 'ativo'
+        
+        # aviso_data[1] é o valor da coluna 'ativo' (True ou False)
+        if not aviso_data[1]: 
             return jsonify({"message": "Aviso já está inativo."}), 200
-
 
         cursor.execute("UPDATE avisos SET ativo = FALSE WHERE id = %s", (aviso_id,))
         conn.commit()
@@ -1474,7 +1480,6 @@ def inativate_aviso(aviso_id):
             cursor.close()
         if conn and conn.is_connected():
             conn.close()
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

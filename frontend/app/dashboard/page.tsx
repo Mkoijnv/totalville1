@@ -366,7 +366,11 @@ export default function DashboardHomePage() {
 
               <div className="flex-1 text-center max-w-sm">
                 <h3 className="text-lg font-semibold text-gray-900 mb-1">{currentAviso.titulo}</h3>
-                <p className="text-sm text-gray-700 mb-2 line-clamp-3">{currentAviso.conteudo}</p>
+                <div 
+    className="text-sm text-gray-700 mb-2 overflow-hidden text-ellipsis aviso-content" 
+    style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
+    dangerouslySetInnerHTML={{ __html: currentAviso.conteudo }} 
+/>
                 {currentAviso.imagem_url && (
                 <div className="relative w-full max-w-xs mx-auto h-24 mb-2 rounded-lg overflow-hidden border">
                   <img
@@ -394,9 +398,7 @@ export default function DashboardHomePage() {
               <p className="text-gray-600 text-center py-8">Nenhum aviso ativo no momento.</p>
             )}
             <div className="text-right mt-3">
-              <Link href="/dashboard/avisos/novo" className="text-blue-600 hover:text-blue-800 text-sm">
-                Postar Novo Aviso
-              </Link>
+
             </div>
           </div>
 
