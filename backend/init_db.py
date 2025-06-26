@@ -122,7 +122,24 @@ def configurar_banco_de_dados():
         ) ENGINE=InnoDB;
         """)
         print("-> Tabela 'reservas' OK.")
-
+        print("Verificando/Criando tabela 'encomendas'...")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS avisos (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            titulo VARCHAR(255) NOT NULL,
+            conteudo TEXT NOT NULL,
+            imagem_url VARCHAR(2048), -- URL da imagem, opcional
+            prioridade INT DEFAULT 0, -- Para ordenar ou destacar avisos (ex: 0=normal, 1=alta)
+            data_publicacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+            data_expiracao DATETIME, -- Opcional: quando o aviso deve parar de ser exibido
+            registrado_por_user_id INT, -- ID do administrador/portaria que postou
+            registrado_por_user_role VARCHAR(50), -- Papel de quem postou (ADM, PORTARIA)
+            ativo BOOLEAN NOT NULL DEFAULT TRUE, -- Para desativar o aviso sem deletá-lo
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (registrado_por_user_id) REFERENCES administradores(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB;
+        """)
+        print("-> Tabela 'reservas' OK.")
         # 7. Tabela de Encomendas
         print("Verificando/Criando tabela 'encomendas'...")
         cursor.execute("""

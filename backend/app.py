@@ -1,6 +1,6 @@
 import os
 import datetime
-import jwt # Importando a biblioteca pyjwt para manipulação manual de JWT
+import jwt
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_bcrypt import Bcrypt
@@ -11,61 +11,45 @@ import mercadopago
 load_dotenv()
 app = Flask(__name__)
 bcrypt = Bcrypt(app)
-CORS(app) 
+CORS(app)
 
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 app.config['JWT_ALGORITHM'] = 'HS256'
-# A duração do token ainda é útil para a lógica de expiração manual
-TOKEN_EXPIRATION_HOURS = 1 
+TOKEN_EXPIRATION_HOURS = 1
 
-# ID do morador placeholder "Morador Não Cadastrado" - DEVE SER IGUAL AO DO SEU init_db.py
-# Por favor, verifique e atualize este ID com o valor REAL do seu banco de dados.
-UNREGISTERED_MORADOR_PLACEHOLDER_ID = 4 # ATUALIZE ESTE ID COM O ID REAL DO SEU BANCO!
+UNREGISTERED_MORADOR_PLACEHOLDER_ID = 1
 
 def get_db_connection():
-    """
-    Estabelece uma conexão com o banco de dados MySQL.
-    As credenciais são carregadas de variáveis de ambiente.
-    """
     try:
         conn = mysql.connector.connect(
-            host=os.getenv('DB_HOST'), 
+            host=os.getenv('DB_HOST'),
             user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'), 
-            database=os.getenv('DB_NAME') 
+            password=os.getenv('DB_PASSWORD'),
+            database=os.getenv('DB_NAME')
         )
         return conn
     except mysql.connector.Error as err:
         print(f"Erro ao conectar ao MySQL: {err}")
         return None
-        
-# Configura o SDK do Mercado Pago
+
 sdk = mercadopago.SDK(os.getenv("MERCADOPAGO_ACCESS_TOKEN"))
 
 def token_required(f):
-    """
-    Decorador para proteger rotas, exigindo um token JWT válido.
-    Implementação manual da verificação do token.
-    """
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         token = None
-        # Tenta obter o token do cabeçalho 'Authorization'
         if 'Authorization' in request.headers:
             auth_header = request.headers['Authorization']
             if auth_header.startswith('Bearer '):
                 token = auth_header.split(" ")[1]
-        
+
         if not token:
             return jsonify({"error": "Token de autenticação não fornecido."}), 401
-        
+
         try:
-            # Decodifica o token manualmente
             decoded_token = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=[app.config['JWT_ALGORITHM']])
-            
-            # Verifica a expiração do token
-            request.user_identity = decoded_token # Armazena a identidade do usuário na requisição para acesso posterior
+            request.user_identity = decoded_token
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token expirado. Faça login novamente."}), 401
         except jwt.InvalidTokenError:
@@ -73,34 +57,36 @@ def token_required(f):
         except Exception as e:
             print(f"Erro inesperado na validação do token: {e}")
             return jsonify({"error": f"Erro na validação do token: {str(e)}"}), 500
-        
+
         return f(*args, **kwargs)
     return decorated
 
+# Função auxiliar para verificar permissões - MELHORADA
+def check_permission(allowed_roles):
+    current_user_identity = request.user_identity
+    user_role = current_user_identity.get('role')
+    return user_role in allowed_roles
+
+
 # --- ROTA PARA GERAR O PAGAMENTO PIX DE UMA RESERVA ---
 @app.route("/api/reservas/<int:reserva_id>/create-payment", methods=["POST"])
-# @token_required # Decida se esta rota também precisa de autenticação
 def create_reservation_payment(reserva_id):
-    """
-    Cria um pagamento PIX para uma reserva específica usando o Mercado Pago.
-    """
-    payment_amount = 0.10 # Valor simbólico para teste. Mude para o valor real da taxa de reserva.
-
+    payment_amount = 0.10
     payment_data = {
         "transaction_amount": payment_amount,
         "description": f"Taxa de reserva para espaço #{reserva_id}",
         "payment_method_id": "pix",
         "payer": {
-            "email": "test_user_123456@testuser.com", # TODO: Se esta rota for usada por um usuário real, obtenha o e-mail do usuário logado/associado à reserva.
+            "email": "test_user_123456@testuser.com",
         },
-        "notification_url": f"https://67ff-2804-1128-bd48-a100-84f0-612c-d46b-f966.ngrok-free.app/api/webhooks/mercadopago", # TODO: ATUALIZE ESTA URL COM SEU ENDEREÇO NGROK REAL 
+        "notification_url": f"https://67ff-2804-1128-bd48-a100-84f0-612c-d46b-f966.ngrok-free.app/api/webhooks/mercadopago",
         "external_reference": str(reserva_id)
     }
 
     try:
         payment_response = sdk.payment().create(payment_data)
         payment = payment_response["response"]
-        
+
         pix_data = {
             "payment_id": payment["id"],
             "qr_code_image": payment["point_of_interaction"]["transaction_data"]["qr_code_base64"],
@@ -113,18 +99,15 @@ def create_reservation_payment(reserva_id):
         return jsonify({"error": f"Erro ao criar pagamento PIX: {e}"}), 500
 
 @app.route("/api/auth/me", methods=["GET"])
-@token_required # Agora usa o decorador manual
+@token_required
 def get_logged_in_user_data():
-    """
-    Retorna os dados do usuário logado a partir do token JWT.
-    """
     try:
-        current_user_identity = request.user_identity 
-        
+        current_user_identity = request.user_identity
+
         user_id = current_user_identity.get('user_id')
         user_apt = current_user_identity.get('apt')
         user_role = current_user_identity.get('role')
-        
+
         if not all([user_id, user_role]):
             return jsonify({"error": "Dados de identidade do token incompletos."}), 400
 
@@ -140,9 +123,6 @@ def get_logged_in_user_data():
 # --- ROTA PARA RECEBER NOTIFICAÇÕES (WEBHOOK) DO MERCADO PAGO ---
 @app.route("/api/webhooks/mercadopago", methods=["POST"])
 def mercadopago_webhook():
-    """
-    Endpoint para receber notificações de webhook do Mercado Pago sobre pagamentos.
-    """
     data = request.json
     print(f"\n--- Webhook do Mercado Pago Recebido ---")
     print(f"Corpo da Notificação: {data}")
@@ -157,7 +137,7 @@ def mercadopago_webhook():
             print(f"Buscando detalhes do pagamento {payment_id} no Mercado Pago...")
             payment_info_response = sdk.payment().get(payment_id)
             payment_info = payment_info_response["response"]
-            
+
             print(f"Resposta do GET do pagamento: {payment_info}")
             payment_status = payment_info.get("status")
             print(f"Status do pagamento encontrado: '{payment_status}'")
@@ -178,7 +158,7 @@ def mercadopago_webhook():
         except Exception as e:
             print(f"ERRO AO PROCESSAR WEBHOOK: {e}")
             if conn and conn.is_connected():
-                conn.rollback() # Garante rollback em caso de erro
+                conn.rollback()
         finally:
             if cursor:
                 cursor.close()
@@ -190,9 +170,6 @@ def mercadopago_webhook():
 # --- ROTAS DE AUTENTICAÇÃO ---
 @app.route("/api/register", methods=["POST"])
 def register_admin():
-    """
-    Registra um novo administrador no sistema.
-    """
     data = request.get_json()
     if not all(k in data for k in ['name', 'email', 'password']):
         return jsonify({"error": "Dados incompletos: nome, email e senha são obrigatórios."}), 400
@@ -230,30 +207,26 @@ def register_admin():
 
 @app.route("/api/login", methods=["POST"])
 def login_user():
-    """
-    Autentica um usuário (administrador ou morador) e retorna um token JWT gerado manualmente.
-    """
     data = request.get_json()
-    if not all(k in data for k in ['email', 'password']): 
+    if not all(k in data for k in ['email', 'password']):
         return jsonify({"error": "Dados incompletos: email e senha são obrigatórios."}), 400
-    
+
     conn = get_db_connection()
-    if not conn: 
-        print("LOGIN ERROR: Failed to get DB connection.") 
+    if not conn:
+        print("LOGIN ERROR: Failed to get DB connection.")
         return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
-    
+
     cursor = conn.cursor(dictionary=True)
-    
+
     usuario = None
     user_role = None
     user_apt = None
 
     try:
-        # Primeiro tenta autenticar como administrador
-        print(f"LOGIN: Attempting to authenticate email: {data['email']} as ADMIN.") 
+        print(f"LOGIN: Attempting to authenticate email: {data['email']} as ADMIN.")
         cursor.execute("""
             SELECT id, nome, email, senha_hash, 'ADMIN' as role
-            FROM administradores 
+            FROM administradores
             WHERE email = %s AND ativo = TRUE
         """, (data['email'],))
         usuario = cursor.fetchone()
@@ -262,14 +235,13 @@ def login_user():
             user_name = usuario['nome']
             user_email = usuario['email']
             user_id = usuario['id']
-            user_apt = 'ADMIN' 
-            print(f"LOGIN: User {user_email} found as ADMIN.") 
+            user_apt = 'ADMIN'
+            print(f"LOGIN: User {user_email} found as ADMIN.")
 
-        # Se não encontrou administrador, tenta como morador
         if not usuario:
-            print(f"LOGIN: User not ADMIN, attempting as MORADOR: {data['email']}.") 
+            print(f"LOGIN: User not ADMIN, attempting as MORADOR: {data['email']}.")
             cursor.execute("""
-                SELECT m.id, m.nome_completo as nome, m.email, m.senha_hash, 
+                SELECT m.id, m.nome_completo as nome, m.email, m.senha_hash,
                        u.numero as apartamento, 'MORADOR' as role
                 FROM moradores m
                 JOIN unidades u ON m.unidade_id = u.id
@@ -282,27 +254,23 @@ def login_user():
                 user_email = usuario['email']
                 user_id = usuario['id']
                 user_apt = usuario['apartamento']
-                print(f"LOGIN: User {user_email} found as MORADOR in apartment {user_apt}.") 
+                print(f"LOGIN: User {user_email} found as MORADOR in apartment {user_apt}.")
 
-        # Se não encontrou nenhum usuário válido
         if not usuario:
-            print(f"LOGIN ERROR: No active user found for email: {data['email']}.") 
+            print(f"LOGIN ERROR: No active user found for email: {data['email']}.")
             return jsonify({"error": "Email ou senha inválidos."}), 401
-        
-        # Verifica a senha
-        print(f"LOGIN: Checking password for user {user_email}.") 
+
+        print(f"LOGIN: Checking password for user {user_email}.")
         if bcrypt.check_password_hash(usuario['senha_hash'], data['password']):
-            print(f"LOGIN: Password correct for user {user_email}. Generating token.") 
-            # Payload para o token JWT manual
+            print(f"LOGIN: Password correct for user {user_email}. Generating token.")
             access_token_payload = {
                 'user_id': user_id,
                 'role': user_role,
                 'apt': user_apt,
                 'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=TOKEN_EXPIRATION_HOURS)
             }
-            # Cria o token de acesso manualmente
             access_token = jwt.encode(access_token_payload, app.config['JWT_SECRET_KEY'], algorithm=app.config['JWT_ALGORITHM'])
-            
+
             response_data = {
                 "access_token": access_token,
                 "user": {
@@ -313,14 +281,14 @@ def login_user():
             }
             if user_role == 'MORADOR':
                 response_data['user']['apartment'] = user_apt
-            
-            print(f"LOGIN SUCCESS: User {user_email} logged in. Role: {user_role}.") 
+
+            print(f"LOGIN SUCCESS: User {user_email} logged in. Role: {user_role}.")
             return jsonify(response_data), 200
         else:
-            print(f"LOGIN ERROR: Incorrect password for user {user_email}.") 
+            print(f"LOGIN ERROR: Incorrect password for user {user_email}.")
             return jsonify({"error": "Email ou senha inválidos."}), 401
     except Exception as e:
-        print(f"LOGIN CRITICAL ERROR: {e}") 
+        print(f"LOGIN CRITICAL ERROR: {e}")
         return jsonify({"error": "Erro interno do servidor durante o login."}), 500
     finally:
         if cursor:
@@ -331,17 +299,13 @@ def login_user():
 
 # --- ROTAS PARA UNIDADES ---
 @app.route("/api/unidades", methods=["GET"])
-@token_required # Agora usa o decorador manual
+@token_required
 def get_unidades():
-    """
-    Retorna uma lista de todas as unidades disponíveis no sistema.
-    Requer autenticação JWT (manual).
-    """
     try:
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
-        
+
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT id, tipo_unidade, bloco, numero, andar
@@ -362,20 +326,16 @@ def get_unidades():
         if conn and conn.is_connected():
             conn.close()
 
-@app.route("/api/unidades/<int:unidade_id>", methods=["GET"]) # NOVA ROTA GET BY ID para Unidades
+@app.route("/api/unidades/<int:unidade_id>", methods=["GET"])
 @token_required
 def get_unidade_by_id(unidade_id):
-    """
-    Retorna os dados de uma unidade específica pelo ID.
-    Requer autenticação JWT.
-    """
     conn = None
     cursor = None
     try:
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
-        
+
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT id, tipo_unidade, bloco, numero, andar
@@ -386,7 +346,7 @@ def get_unidade_by_id(unidade_id):
 
         if not unidade:
             return jsonify({"error": "Unidade não encontrada."}), 404
-        
+
         return jsonify(unidade), 200
     except mysql.connector.Error as err:
         print(f"Erro no banco de dados ao buscar unidade por ID: {err}")
@@ -404,10 +364,9 @@ def get_unidade_by_id(unidade_id):
 @app.route("/api/moradores", methods=["POST"])
 @token_required
 def add_morador():
-    """
-    Adiciona um novo morador ao sistema.
-    Requer autenticação JWT (manual).
-    """
+    if not check_permission(['ADMIN']): # Somente ADMIN pode adicionar morador
+        return jsonify({"error": "Acesso negado. Apenas administradores podem adicionar moradores."}), 403
+
     try:
         data = request.get_json()
 
@@ -419,7 +378,7 @@ def add_morador():
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
-        
+
         cursor = conn.cursor(dictionary=True)
 
         cursor.execute("SELECT id FROM moradores WHERE email = %s", (data['email'],))
@@ -430,7 +389,7 @@ def add_morador():
             cursor.execute("SELECT id FROM moradores WHERE cpf = %s", (data['cpf'],))
             if cursor.fetchone():
                 return jsonify({"error": "Este CPF já está cadastrado como morador."}), 409
-        
+
         cursor.execute("SELECT id FROM unidades WHERE id = %s", (data['unidade_id'],))
         if not cursor.fetchone():
             return jsonify({"error": "ID da unidade não encontrado ou inválido."}), 400
@@ -438,9 +397,9 @@ def add_morador():
         hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
 
         sql = """
-            INSERT INTO moradores 
-                (nome_completo, email, senha_hash, unidade_id, cpf, rg, profissao, whatsapp, tipo_morador, ativo) 
-            VALUES 
+            INSERT INTO moradores
+                (nome_completo, email, senha_hash, unidade_id, cpf, rg, profissao, whatsapp, tipo_morador, ativo)
+            VALUES
                 (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
         """
         cursor.execute(sql, (
@@ -475,18 +434,14 @@ def add_morador():
 @app.route("/api/moradores", methods=["GET"])
 @token_required
 def get_moradores():
-    """
-    Retorna uma lista de todos os moradores.
-    Requer autenticação JWT.
-    """
+    if not check_permission(['ADMIN']): # Somente ADMIN pode listar moradores
+        return jsonify({"error": "Acesso negado. Apenas administradores podem listar moradores."}), 403
     try:
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
-        
+
         cursor = conn.cursor(dictionary=True)
-        # Seleciona todos os campos necessários para a exibição no frontend
-        # Não seleciona senha_hash por segurança
         cursor.execute("""
             SELECT id, nome_completo, email, unidade_id, cpf, rg, profissao, whatsapp, tipo_morador, ativo
             FROM moradores
@@ -506,20 +461,18 @@ def get_moradores():
         if conn and conn.is_connected():
             conn.close()
 
-@app.route("/api/moradores/<int:morador_id>", methods=["GET"]) # Rota para obter morador por ID
+@app.route("/api/moradores/<int:morador_id>", methods=["GET"])
 @token_required
 def get_morador_by_id(morador_id):
-    """
-    Retorna os dados de um morador específico pelo ID.
-    Requer autenticação JWT.
-    """
+    if not check_permission(['ADMIN']): # Somente ADMIN pode ver morador por ID
+        return jsonify({"error": "Acesso negado. Apenas administradores podem visualizar detalhes de moradores."}), 403
     conn = None
     cursor = None
     try:
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
-        
+
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT id, nome_completo, email, unidade_id, cpf, rg, profissao, whatsapp, tipo_morador, ativo
@@ -530,7 +483,7 @@ def get_morador_by_id(morador_id):
 
         if not morador:
             return jsonify({"error": "Morador não encontrado."}), 404
-        
+
         return jsonify(morador), 200
     except mysql.connector.Error as err:
         print(f"Erro no banco de dados ao buscar morador por ID: {err}")
@@ -547,12 +500,8 @@ def get_morador_by_id(morador_id):
 @app.route("/api/moradores/<int:morador_id>", methods=["PUT"])
 @token_required
 def update_morador(morador_id):
-    """
-    Atualiza os dados de um morador existente.
-    Requer autenticação JWT.
-    Permite atualização parcial (somente campos fornecidos).
-    A senha é atualizada apenas se for fornecida no payload.
-    """
+    if not check_permission(['ADMIN']): # Somente ADMIN pode atualizar morador
+        return jsonify({"error": "Acesso negado. Apenas administradores podem atualizar moradores."}), 403
     data = request.get_json()
     conn = get_db_connection()
     if not conn:
@@ -560,12 +509,10 @@ def update_morador(morador_id):
     cursor = conn.cursor()
 
     try:
-        # Verifica se o morador existe
         cursor.execute("SELECT id FROM moradores WHERE id = %s", (morador_id,))
         if not cursor.fetchone():
             return jsonify({"error": "Morador não encontrado."}), 404
 
-        # Construção dinâmica da query de atualização
         set_clauses = []
         values = []
 
@@ -573,25 +520,23 @@ def update_morador(morador_id):
             set_clauses.append("nome_completo = %s")
             values.append(data['nome_completo'])
         if 'email' in data:
-            # Verifica unicidade do email, excluindo o próprio morador
             cursor.execute("SELECT id FROM moradores WHERE email = %s AND id != %s", (data['email'], morador_id))
             if cursor.fetchone():
                 return jsonify({"error": "Este e-mail já está cadastrado para outro morador."}), 409
             set_clauses.append("email = %s")
             values.append(data['email'])
-        if 'password' in data and data['password']: # Atualiza senha apenas se fornecida
+        if 'password' in data and data['password']:
             hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
             set_clauses.append("senha_hash = %s")
             values.append(hashed_password)
         if 'unidade_id' in data:
-            # Verifica se a unidade_id é válida
             cursor.execute("SELECT id FROM unidades WHERE id = %s", (data['unidade_id'],))
             if not cursor.fetchone():
                 return jsonify({"error": "ID da unidade não encontrado ou inválido."}), 400
             set_clauses.append("unidade_id = %s")
             values.append(data['unidade_id'])
         if 'cpf' in data:
-            if data['cpf']: # Verifica unicidade do CPF se não for nulo
+            if data['cpf']:
                 cursor.execute("SELECT id FROM moradores WHERE cpf = %s AND id != %s", (data['cpf'], morador_id))
                 if cursor.fetchone():
                     return jsonify({"error": "Este CPF já está cadastrado para outro morador."}), 409
@@ -609,9 +554,8 @@ def update_morador(morador_id):
         if 'tipo_morador' in data:
             set_clauses.append("tipo_morador = %s")
             values.append(data['tipo_morador'])
-        # 'ativo' é tratado por outra rota específica
 
-        if not set_clauses: # Nenhuma alteração fornecida
+        if not set_clauses:
             return jsonify({"message": "Nenhum dado para atualizar."}), 200
 
         sql = f"UPDATE moradores SET {', '.join(set_clauses)} WHERE id = %s"
@@ -639,10 +583,8 @@ def update_morador(morador_id):
 @app.route("/api/moradores/<int:morador_id>/status", methods=["PUT"])
 @token_required
 def toggle_morador_status(morador_id):
-    """
-    Alterna o status 'ativo' de um morador.
-    Requer autenticação JWT.
-    """
+    if not check_permission(['ADMIN']): # Somente ADMIN pode alterar status de morador
+        return jsonify({"error": "Acesso negado. Apenas administradores podem alterar o status de moradores."}), 403
     data = request.get_json()
     if 'ativo' not in data or not isinstance(data['ativo'], bool):
         return jsonify({"error": "Status 'ativo' (booleano) é obrigatório."}), 400
@@ -653,7 +595,6 @@ def toggle_morador_status(morador_id):
     cursor = conn.cursor()
 
     try:
-        # Verifica se o morador existe
         cursor.execute("SELECT id FROM moradores WHERE id = %s", (morador_id,))
         if not cursor.fetchone():
             return jsonify({"error": "Morador não encontrado."}), 404
@@ -679,25 +620,59 @@ def toggle_morador_status(morador_id):
         if conn and conn.is_connected():
             conn.close()
 
+@app.route("/api/reservas/resumo-geral", methods=["GET"])
+@token_required
+def get_all_reservations_summary():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        sql = """
+            SELECT
+                r.nome_espaco AS space_name,
+                r.data_reserva AS reservation_date,
+                r.status,
+                m.nome_completo AS resident_name,
+                CONCAT(u.bloco, '-', u.numero) AS unit_number,
+                r.nome_espaco AS space_id
+            FROM reservas r
+            LEFT JOIN moradores m ON r.morador_id = m.id
+            LEFT JOIN unidades u ON m.unidade_id = u.id
+            WHERE r.status IN ('Aprovada', 'Pendente')
+            ORDER BY r.data_reserva ASC
+        """
+        cursor.execute(sql)
+        reservas = cursor.fetchall()
+
+        for reserva in reservas:
+            if isinstance(reserva['reservation_date'], datetime.date):
+                reserva['reservation_date'] = reserva['reservation_date'].isoformat()
+
+        return jsonify(reservas), 200
+
+    except Exception as e:
+        print(f"Erro ao buscar resumo geral de reservas: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 # --- ROTAS PARA ENCOMENDAS ---
 @app.route("/api/encomendas", methods=["POST"])
 @token_required
 def add_encomenda():
-    """
-    Cadastra uma nova encomenda.
-    Requer autenticação JWT (espera admin para essa ação).
-    """
     current_user_identity = request.user_identity
     registrado_por_admin_id = current_user_identity.get('user_id')
     user_role = current_user_identity.get('role')
 
-    # Opcional: Apenas administradores podem cadastrar encomendas
-    if user_role != 'ADMIN':
+    if not check_permission(['ADMIN']): # Somente ADMIN pode cadastrar encomendas
         return jsonify({"error": "Apenas administradores podem cadastrar encomendas."}), 403
 
     data = request.get_json()
-    # Adicionado 'unidade_destino_id' aos campos obrigatórios
-    required_fields = ['remetente', 'data_chegada', 'morador_id', 'unidade_destino_id'] 
+    required_fields = ['remetente', 'data_chegada', 'morador_id', 'unidade_destino_id']
     if not all(k in data for k in required_fields):
         missing = [k for k in required_fields if k not in data]
         return jsonify({"error": f"Dados incompletos. Campos obrigatórios: {', '.join(missing)}"}), 400
@@ -708,18 +683,15 @@ def add_encomenda():
     cursor = conn.cursor()
 
     try:
-        # Verifica se o morador_id existe (sem verificar 'ativo' para o placeholder)
         cursor.execute("SELECT id FROM moradores WHERE id = %s", (data['morador_id'],))
         morador_exists = cursor.fetchone()
-        if not morador_exists: 
+        if not morador_exists:
             return jsonify({"error": "Morador destinatário não encontrado."}), 400
-        
-        # Verifica se a unidade_destino_id existe
+
         cursor.execute("SELECT id FROM unidades WHERE id = %s", (data['unidade_destino_id'],))
         if not cursor.fetchone():
             return jsonify({"error": "Unidade de destino não encontrada ou inválida."}), 400
 
-        # SQL INSERT agora inclui 'unidade_destino_id'
         sql = """
             INSERT INTO encomendas (remetente, descricao, data_chegada, morador_id, unidade_destino_id, registrado_por_admin_id)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -729,7 +701,7 @@ def add_encomenda():
             data.get('descricao'),
             data['data_chegada'],
             data['morador_id'],
-            data['unidade_destino_id'], # Salvando o novo campo
+            data['unidade_destino_id'],
             registrado_por_admin_id
         ))
         conn.commit()
@@ -751,14 +723,10 @@ def add_encomenda():
 @app.route("/api/encomendas", methods=["GET"])
 @token_required
 def get_encomendas():
-    """
-    Retorna uma lista de todas as encomendas, com opção de busca.
-    Requer autenticação JWT (espera admin para essa ação).
-    """
     current_user_identity = request.user_identity
     user_role = current_user_identity.get('role')
 
-    if user_role != 'ADMIN':
+    if not check_permission(['ADMIN']): # Somente ADMIN pode listar todas as encomendas
         return jsonify({"error": "Apenas administradores podem listar todas as encomendas."}), 403
 
     conn = get_db_connection()
@@ -768,39 +736,37 @@ def get_encomendas():
 
     try:
         search_term = request.args.get('search_term')
-        
-        # SQL principal para buscar encomendas
+
         sql_query = """
-            SELECT 
-                e.id, e.remetente, e.descricao, e.data_chegada, e.status, e.data_retirada, 
+            SELECT
+                e.id, e.remetente, e.descricao, e.data_chegada, e.status, e.data_retirada,
                 e.morador_id, e.unidade_destino_id, e.registrado_por_admin_id, e.criado_em,
                 m.nome_completo as morador_nome,
                 u.numero as morador_unidade_numero,
                 u.bloco as morador_unidade_bloco,
-                u.tipo_unidade as morador_unidade_tipo -- Adicionado o tipo da unidade
+                u.tipo_unidade as morador_unidade_tipo
             FROM encomendas e
             LEFT JOIN moradores m ON e.morador_id = m.id
-            LEFT JOIN unidades u ON e.unidade_destino_id = u.id -- JOIN com unidade_destino_id
+            LEFT JOIN unidades u ON e.unidade_destino_id = u.id
         """
         where_clauses = []
         query_params = []
 
         if search_term:
             search_pattern = f"%{search_term}%"
-            # Inclui e.descricao na busca
             where_clauses.append("""
-                (e.remetente LIKE %s OR 
-                 e.descricao LIKE %s OR 
-                 m.nome_completo LIKE %s OR 
-                 u.numero LIKE %s OR 
+                (e.remetente LIKE %s OR
+                 e.descricao LIKE %s OR
+                 m.nome_completo LIKE %s OR
+                 u.numero LIKE %s OR
                  u.bloco LIKE %s OR
-                 u.tipo_unidade LIKE %s) -- Incluído tipo_unidade na busca
+                 u.tipo_unidade LIKE %s)
             """)
             query_params.extend([search_pattern, search_pattern, search_pattern, search_pattern, search_pattern, search_pattern])
 
         if where_clauses:
             sql_query += " WHERE " + " AND ".join(where_clauses)
-        
+
         sql_query += " ORDER BY e.data_chegada DESC, e.status ASC"
 
         cursor.execute(sql_query, tuple(query_params))
@@ -809,7 +775,7 @@ def get_encomendas():
         return jsonify(encomendas), 200
     except mysql.connector.Error as err:
         print(f"Erro no banco de dados ao buscar encomendas: {err}")
-        return jsonify({"error": f"Erro ao buscar encomendas: {err}"}), 500
+        return jsonify({"error": f"Erro ao buscar encomendas: {str(err)}"}), 500
     except Exception as e:
         print(f"Erro interno do servidor ao buscar encomendas: {e}")
         return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
@@ -822,28 +788,22 @@ def get_encomendas():
 @app.route("/api/encomendas/<int:encomenda_id>/retirada", methods=["PUT"])
 @token_required
 def register_encomenda_retirada(encomenda_id):
-    """
-    Registra a retirada de uma encomenda, autenticando o morador com CPF e senha.
-    Requer autenticação JWT (admin para realizar a operação).
-    """
     current_user_identity = request.user_identity
     user_role = current_user_identity.get('role')
 
-    if user_role != 'ADMIN':
+    if not check_permission(['ADMIN']): # Somente ADMIN pode registrar retirada
         return jsonify({"error": "Apenas administradores podem registrar a retirada de encomendas."}), 403
 
     data = request.get_json()
-    # Adicionado 'unidade_destino_id' aos campos obrigatórios do payload de retirada
-    if not all(k in data for k in ['cpf', 'password', 'unidade_destino_id']): 
+    if not all(k in data for k in ['cpf', 'password', 'unidade_destino_id']):
         return jsonify({"error": "CPF, senha do morador e unidade de destino são obrigatórios para retirada."}), 400
 
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
-    cursor = conn.cursor(dictionary=True) # Alterado para dictionary=True para facilitar acesso
+    cursor = conn.cursor(dictionary=True)
 
     try:
-        # 1. Buscar a encomenda e verificar seu status, e também obter morador_id e unidade_destino_id
         cursor.execute("""
             SELECT e.id, e.morador_id, e.unidade_destino_id, e.status
             FROM encomendas e
@@ -856,8 +816,6 @@ def register_encomenda_retirada(encomenda_id):
         if encomenda_info['status'] == 'Retirada':
             return jsonify({"error": "Encomenda já foi retirada."}), 409
 
-        # 2. Autenticar o morador que está tentando retirar com CPF e senha
-        # A busca agora inclui a unidade_id do morador autenticado
         cursor.execute("""
             SELECT id, senha_hash, unidade_id
             FROM moradores
@@ -867,22 +825,15 @@ def register_encomenda_retirada(encomenda_id):
 
         if not morador_auth_data or not bcrypt.check_password_hash(morador_auth_data['senha_hash'], data['password']):
             return jsonify({"error": "CPF ou senha do morador inválidos."}), 401
-        
-        # 3. VALIDAÇÃO DE UNIDADE (AJUSTADA PARA O PLACEHOLDER)
-        # Se a encomenda foi destinada ao morador placeholder, a validação de unidade é ignorada.
-        # Caso contrário, a unidade do morador autenticado DEVE corresponder à unidade de destino da encomenda.
+
         if encomenda_info['morador_id'] != UNREGISTERED_MORADOR_PLACEHOLDER_ID:
             if morador_auth_data['unidade_id'] != data['unidade_destino_id']:
                 print(f"ERRO RETIRADA: Unidade do morador autenticado ({morador_auth_data['unidade_id']}) NÃO corresponde à unidade de destino da encomenda ({data['unidade_destino_id']}).")
                 return jsonify({"error": "O morador autenticado não pertence à unidade de destino desta encomenda."}), 403
         else:
             print(f"DEBUG RETIRADA: Encomenda para morador placeholder ({UNREGISTERED_MORADOR_PLACEHOLDER_ID}). Validação de unidade IGNORADA.")
-            # Ainda assim, você pode querer adicionar uma validação mais permissiva aqui,
-            # por exemplo, que o morador autenticado pertença a *qualquer* unidade (se não for Nulo).
-            # Ou confiar totalmente na autenticação de CPF/senha para o placeholder.
-            pass # Nenhuma validação de unidade adicional se a encomenda é para o placeholder
+            pass
 
-        # 4. Registrar a retirada (se tudo ok)
         sql_update = """
             UPDATE encomendas
             SET status = 'Retirada', data_retirada = CURDATE()
@@ -910,7 +861,7 @@ def register_encomenda_retirada(encomenda_id):
 
 # --- ROTAS DE CRIAÇÃO (POST) (Já existentes, mantidas como estão ou ajustadas) ---
 @app.route("/api/visitantes", methods=["POST"])
-@token_required # Garante que a rota exige autenticação
+@token_required
 def add_visitor():
     try:
         current_user_identity = request.user_identity
@@ -921,14 +872,14 @@ def add_visitor():
         required_fields = ['name', 'cpf', 'release_date', 'has_car']
         if not all(k in data for k in required_fields):
             return jsonify({"error": f"Dados incompletos: {', '.join(required_fields)} são obrigatórios."}), 400
-        
+
         try:
             release_date_obj = datetime.datetime.strptime(data['release_date'], '%Y-%m-%d').date()
         except ValueError:
             return jsonify({"error": "Formato de data inválido. Use AAAA-MM-DD."}), 400
 
         conn = get_db_connection()
-        if not conn: 
+        if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados"}), 500
         cursor = conn.cursor(dictionary=True)
 
@@ -948,10 +899,10 @@ def add_visitor():
             return jsonify({"error": f"CPF já liberado até {existing_date}"}), 409
 
         sql_insert = """
-            INSERT INTO visitantes 
-                (nome_completo, cpf, data_liberacao, possui_veiculo, placa_veiculo, modelo_veiculo, 
-                cor_veiculo, unidade_visitada, observacoes, morador_id) 
-            VALUES 
+            INSERT INTO visitantes
+                (nome_completo, cpf, data_liberacao, possui_veiculo, placa_veiculo, modelo_veiculo,
+                cor_veiculo, unidade_visitada, observacoes, morador_id)
+            VALUES
                 (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(sql_insert, (
@@ -962,9 +913,9 @@ def add_visitor():
             data.get('car_plate'),
             data.get('car_model'),
             data.get('car_color'),
-            user_apt, # Unidade visitada (apartamento do morador logado)
+            user_apt,
             data.get('observations'),
-            user_id # ID do morador que está cadastrando o visitante
+            user_id
         ))
         conn.commit()
         return jsonify({"message": "Visitante registrado com sucesso!"}), 201
@@ -990,35 +941,35 @@ def add_occurrence():
         user_id = current_user_identity.get('user_id')
 
         data = request.get_json()
-        if not all(k in data for k in ['occurrence_type', 'description', 'occurrence_date']): 
+        if not all(k in data for k in ['occurrence_type', 'description', 'occurrence_date']):
             return jsonify({"error": "Dados incompletos: tipo, descrição e data da ocorrência são obrigatórios."}), 400
-        
+
         occurrence_type = data.get('custom_type', data['occurrence_type']) if data['occurrence_type'] == 'Outro' else data['occurrence_type']
-        
+
         conn = get_db_connection()
-        if not conn: 
+        if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
         cursor = conn.cursor()
         sql = """
-            INSERT INTO ocorrencias 
-                (tipo_ocorrencia, descricao, localizacao, data_ocorrencia, morador_id) 
-            VALUES 
+            INSERT INTO ocorrencias
+                (tipo_ocorrencia, descricao, localizacao, data_ocorrencia, morador_id)
+            VALUES
                 (%s, %s, %s, %s, %s)
         """
         cursor.execute(sql, (
-            occurrence_type, 
-            data['description'], 
-            data.get('location'), 
-            data['occurrence_date'], 
+            occurrence_type,
+            data['description'],
+            data.get('location'),
+            data['occurrence_date'],
             user_id
         ))
         conn.commit()
         return jsonify({"message": "Ocorrência registrada com sucesso!"}), 201
-    except Exception as e: 
-        conn.rollback(); 
+    except Exception as e:
+        conn.rollback();
         print(f"Erro ao registrar ocorrência: {e}")
         return jsonify({"error": str(e)}), 500
-    finally: 
+    finally:
         if cursor:
             cursor.close()
         if conn and conn.is_connected():
@@ -1038,13 +989,13 @@ def add_reservation():
             return jsonify({"error": "Dados incompletos: nome do espaço e data da reserva são obrigatórios."}), 400
 
         conn = get_db_connection()
-        if not conn: 
+        if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
         cursor = conn.cursor(dictionary=True)
 
         check_sql = """
-            SELECT status 
-            FROM reservas 
+            SELECT status
+            FROM reservas
             WHERE nome_espaco = %s AND data_reserva = %s
         """
         cursor.execute(check_sql, (data['space_name'], data['reservation_date']))
@@ -1053,34 +1004,34 @@ def add_reservation():
         if existing_reservation:
             if existing_reservation['status'] == 'Aprovada':
                 return jsonify({"error": "Espaço já reservado para esta data e status 'Aprovada'."}), 409
-            else: 
+            else:
                 return jsonify({"error": "Já existe uma reserva pendente para esta data."}), 409
 
         cursor.execute("SELECT email FROM moradores WHERE id = %s", (user_id,))
         morador_record = cursor.fetchone()
         if not morador_record:
             raise Exception("Morador não encontrado para o ID fornecido no token.")
-        user_email = morador_record['email'] 
-        
+        user_email = morador_record['email']
+
         sql_insert = """
-            INSERT INTO reservas 
-                (nome_espaco, data_reserva, status, morador_id) 
-            VALUES 
+            INSERT INTO reservas
+                (nome_espaco, data_reserva, status, morador_id)
+            VALUES
                 (%s, %s, 'Pendente', %s)
         """
         cursor.execute(sql_insert, (data['space_name'], data['reservation_date'], user_id))
         reserva_id = cursor.lastrowid
         conn.commit()
         print(f"Reserva #{reserva_id} criada como 'Pendente'.")
-        
+
         if reserva_id:
-            payment_amount = 0.10 
+            payment_amount = 0.10
             payment_data = {
                 "transaction_amount": payment_amount,
                 "description": f"Taxa de reserva para {data['space_name']} em {data['reservation_date']}",
                 "payment_method_id": "pix",
-                "payer": { "email": user_email }, 
-                "notification_url": f"https://67ff-2804-1128-bd48-a100-84f0-612c-d46b-f966.ngrok-free.app/api/webhooks/mercadopago", 
+                "payer": { "email": user_email },
+                "notification_url": f"https://67ff-2804-1128-bd48-a100-84f0-612c-d46b-f966.ngrok-free.app/api/webhooks/mercadopago",
                 "external_reference": str(reserva_id)
             }
             payment_response = sdk.payment().create(payment_data)
@@ -1103,7 +1054,7 @@ def add_reservation():
         if conn and conn.is_connected():
             conn.rollback()
         print(f"Erro no banco de dados ao criar reserva: {err}")
-        return jsonify({"error": f"Erro no banco de dados: {err}"}), 500
+        return jsonify({"error": f"Erro no banco de dados: {str(err)}"}), 500
     except Exception as e:
         if conn and conn.is_connected():
             conn.rollback()
@@ -1124,13 +1075,13 @@ def get_my_reservations():
         user_id = current_user_identity.get('user_id')
 
         conn = get_db_connection()
-        if not conn: 
+        if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT id, nome_espaco as space_name, data_reserva as reservation_date, status 
-            FROM reservas 
-            WHERE morador_id = %s 
+            SELECT id, nome_espaco as space_name, data_reserva as reservation_date, status
+            FROM reservas
+            WHERE morador_id = %s
             ORDER BY data_reserva DESC
         """, (user_id,))
         reservas = cursor.fetchall()
@@ -1152,13 +1103,13 @@ def get_my_visitors():
         user_id = current_user_identity.get('user_id')
 
         conn = get_db_connection()
-        if not conn: 
+        if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT id, nome_completo as name, cpf, data_liberacao as release_date 
-            FROM visitantes 
-            WHERE morador_id = %s 
+            SELECT id, nome_completo as name, cpf, data_liberacao as release_date
+            FROM visitantes
+            WHERE morador_id = %s
             ORDER BY data_liberacao DESC
         """, (user_id,))
         visitantes = cursor.fetchall()
@@ -1172,22 +1123,67 @@ def get_my_visitors():
         if conn and conn.is_connected():
             conn.close()
 
+# --- NOVA ROTA: MINHAS ENCOMENDAS ---
+@app.route("/api/minhas-encomendas", methods=["GET"])
+@token_required
+def get_my_encomendas():
+    current_user_identity = request.user_identity
+    user_id = current_user_identity.get('user_id')
+    user_role = current_user_identity.get('role')
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        if user_role == 'ADMIN':
+            return jsonify([]), 200
+
+        sql = """
+            SELECT
+                e.id, e.remetente, e.descricao, e.data_chegada, e.status, e.data_retirada,
+                e.morador_id, e.unidade_destino_id, e.registrado_por_admin_id, e.criado_em,
+                m.nome_completo as morador_nome,
+                u.numero as morador_unidade_numero,
+                u.bloco as morador_unidade_bloco,
+                u.tipo_unidade as morador_unidade_tipo
+            FROM encomendas e
+            LEFT JOIN moradores m ON e.morador_id = m.id
+            LEFT JOIN unidades u ON e.unidade_destino_id = u.id
+            WHERE e.morador_id = %s AND e.morador_id != %s
+            ORDER BY e.data_chegada DESC, e.status ASC
+        """
+        cursor.execute(sql, (user_id, UNREGISTERED_MORADOR_PLACEHOLDER_ID))
+        encomendas = cursor.fetchall()
+
+        return jsonify(encomendas), 200
+    except Exception as e:
+        print(f"Erro ao buscar minhas encomendas: {e}")
+        return jsonify({"error": f"Erro ao buscar minhas encomendas: {e}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+
 # --- RESUMO DE OCORRÊNCIAS ---
 @app.route("/api/ocorrencias/resumo", methods=["GET"])
 @token_required
 def get_occurrences_summary():
     try:
-        request.user_identity 
-        
+        request.user_identity
+
         conn = get_db_connection()
-        if not conn: 
+        if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
         cursor = conn.cursor(dictionary=True)
 
         sql = """
-            SELECT tipo_ocorrencia as occurrence_type, COUNT(*) as count 
-            FROM ocorrencias 
-            WHERE status = 'Aberto' 
+            SELECT tipo_ocorrencia as occurrence_type, COUNT(*) as count
+            FROM ocorrencias
+            WHERE status = 'Aberto'
             GROUP BY tipo_ocorrencia
             ORDER BY count DESC
         """
@@ -1203,19 +1199,18 @@ def get_occurrences_summary():
         if conn and conn.is_connected():
             conn.close()
 
-# Rota renomeada para corresponder ao frontend
 @app.route("/api/reservations/booked-dates", methods=["GET"])
 @token_required
 def get_booked_dates():
     try:
-        request.user_identity 
-        
+        request.user_identity
+
         space_name = request.args.get('space')
         if not space_name:
             return jsonify({"error": "Nome do espaço não fornecido."}), 400
 
         conn = get_db_connection()
-        if not conn: 
+        if not conn:
             return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
         cursor = conn.cursor()
 
@@ -1231,6 +1226,255 @@ def get_booked_dates():
             cursor.close()
         if conn and conn.is_connected():
             conn.close()
+
+# --- ROTAS CRUD PARA AVISOS ---
+@app.route("/api/avisos", methods=["POST"])
+@token_required
+def add_aviso():
+    current_user_identity = request.user_identity
+    registrado_por_user_id = current_user_identity.get('user_id')
+    user_role = current_user_identity.get('role')
+
+    if not check_permission(['ADMIN', 'PORTARIA']):
+        return jsonify({"error": "Acesso negado. Apenas administradores ou portarias podem postar avisos."}), 403
+
+    data = request.get_json()
+    required_fields = ['titulo', 'conteudo']
+    if not all(k in data for k in required_fields):
+        missing = [k for k in required_fields if k not in data]
+        return jsonify({"error": f"Dados incompletos. Campos obrigatórios: {', '.join(missing)}"}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor()
+
+    try:
+        sql = """
+            INSERT INTO avisos (titulo, conteudo, imagem_url, prioridade, data_expiracao, data_publicacao, registrado_por_user_id, registrado_por_user_role, ativo)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
+        """
+        # Converte a data_expiracao para objeto datetime se não for nula, senão None
+        data_expiracao_obj = datetime.datetime.strptime(data['data_expiracao'], '%Y-%m-%d') if data.get('data_expiracao') else None
+
+        cursor.execute(sql, (
+            data['titulo'],
+            data['conteudo'],
+            data.get('imagem_url'),
+            data.get('prioridade', 0),
+            data_expiracao_obj, # Passa o objeto datetime ou None
+            datetime.datetime.utcnow(), # data_publicacao é sempre a data atual
+            registrado_por_user_id,
+            user_role
+        ))
+        conn.commit()
+        return jsonify({"message": "Aviso postado com sucesso!"}), 201
+    except mysql.connector.Error as err:
+        conn.rollback()
+        print(f"Erro no banco de dados ao adicionar aviso: {err}")
+        return jsonify({"error": f"Erro no banco de dados: {str(err)}"}), 500
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro interno ao adicionar aviso: {e}")
+        return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+@app.route("/api/avisos", methods=["GET"])
+@token_required
+def get_all_avisos():
+    """
+    Retorna a lista de todos os avisos (ativos e inativos), ordenados.
+    Apenas administradores e portarias podem ver todos os avisos. Moradores verão apenas os ativos no dashboard.
+    """
+    current_user_identity = request.user_identity
+    user_role = current_user_identity.get('role')
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        sql = """
+            SELECT
+                id, titulo, conteudo, imagem_url, prioridade,
+                data_publicacao, data_expiracao, registrado_por_user_id,
+                registrado_por_user_role, ativo
+            FROM avisos
+            ORDER BY ativo DESC, prioridade DESC, data_publicacao DESC
+        """
+        cursor.execute(sql)
+        avisos = cursor.fetchall()
+
+        # Converte objetos datetime para string ISO format
+        for aviso in avisos:
+            if isinstance(aviso['data_publicacao'], datetime.datetime):
+                aviso['data_publicacao'] = aviso['data_publicacao'].isoformat()
+            if isinstance(aviso['data_expiracao'], datetime.datetime):
+                aviso['data_expiracao'] = aviso['data_expiracao'].isoformat()
+        return jsonify(avisos), 200
+    except Exception as e:
+        print(f"Erro ao buscar todos os avisos: {e}")
+        return jsonify({"error": f"Erro ao buscar avisos: {e}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+@app.route("/api/avisos/<int:aviso_id>", methods=["GET"])
+@token_required
+def get_aviso_by_id(aviso_id):
+    """
+    Retorna um aviso específico pelo ID.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        sql = """
+            SELECT
+                id, titulo, conteudo, imagem_url, prioridade,
+                data_publicacao, data_expiracao, registrado_por_user_id,
+                registrado_por_user_role, ativo
+            FROM avisos
+            WHERE id = %s
+        """
+        cursor.execute(sql, (aviso_id,))
+        aviso = cursor.fetchone()
+
+        if not aviso:
+            return jsonify({"error": "Aviso não encontrado."}), 404
+
+        if isinstance(aviso['data_publicacao'], datetime.datetime):
+            aviso['data_publicacao'] = aviso['data_publicacao'].isoformat()
+        if isinstance(aviso['data_expiracao'], datetime.datetime):
+            aviso['data_expiracao'] = aviso['data_expiracao'].isoformat()
+
+        return jsonify(aviso), 200
+    except Exception as e:
+        print(f"Erro ao buscar aviso por ID: {e}")
+        return jsonify({"error": f"Erro ao buscar aviso: {e}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+@app.route("/api/avisos/<int:aviso_id>", methods=["PUT"])
+@token_required
+def update_aviso(aviso_id):
+    """
+    Atualiza um aviso existente.
+    Requer autenticação JWT (espera ADMIN ou PORTARIA para essa ação).
+    """
+    if not check_permission(['ADMIN', 'PORTARIA']):
+        return jsonify({"error": "Acesso negado. Apenas administradores ou portarias podem atualizar avisos."}), 403
+
+    data = request.get_json()
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("SELECT id FROM avisos WHERE id = %s", (aviso_id,))
+        if not cursor.fetchone():
+            return jsonify({"error": "Aviso não encontrado."}), 404
+
+        set_clauses = []
+        values = []
+
+        if 'titulo' in data:
+            set_clauses.append("titulo = %s")
+            values.append(data['titulo'])
+        if 'conteudo' in data:
+            set_clauses.append("conteudo = %s")
+            values.append(data['conteudo'])
+        if 'imagem_url' in data:
+            set_clauses.append("imagem_url = %s")
+            values.append(data['imagem_url'])
+        if 'prioridade' in data:
+            set_clauses.append("prioridade = %s")
+            values.append(data['prioridade'])
+        if 'data_expiracao' in data: # Permite que seja None
+            data_expiracao_obj = datetime.datetime.strptime(data['data_expiracao'], '%Y-%m-%d') if data['data_expiracao'] else None
+            set_clauses.append("data_expiracao = %s")
+            values.append(data_expiracao_obj)
+        if 'ativo' in data: # Permite alternar ativo/inativo
+            set_clauses.append("ativo = %s")
+            values.append(bool(data['ativo']))
+
+        if not set_clauses:
+            return jsonify({"message": "Nenhum dado para atualizar."}), 200
+
+        sql = f"UPDATE avisos SET {', '.join(set_clauses)} WHERE id = %s"
+        values.append(aviso_id)
+
+        cursor.execute(sql, tuple(values))
+        conn.commit()
+
+        return jsonify({"message": "Aviso atualizado com sucesso!"}), 200
+    except mysql.connector.Error as err:
+        conn.rollback()
+        print(f"Erro no banco de dados ao atualizar aviso: {err}")
+        return jsonify({"error": f"Erro no banco de dados: {str(err)}"}), 500
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro interno ao atualizar aviso: {e}")
+        return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+# Rota para INATIVAR um aviso (SUBSTITUI O DELETE)
+@app.route('/api/avisos/inativar/<int:aviso_id>', methods=['PUT'])
+@token_required
+def inativate_aviso(aviso_id):
+    if not check_permission(['ADMIN', 'PORTARIA']):
+        return jsonify({"error": "Acesso negado. Apenas administradores e portarias podem inativar avisos."}), 403
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Erro de conexão com o banco de dados."}), 500
+    cursor = conn.cursor()
+
+    try:
+        aviso = Aviso.query.get(aviso_id) # Se estiver usando SQLAlchemy
+        # Ou com MySQL Connector:
+        cursor.execute("SELECT id, ativo FROM avisos WHERE id = %s", (aviso_id,))
+        aviso_data = cursor.fetchone()
+        if not aviso_data:
+            return jsonify({"error": "Aviso não encontrado."}), 404
+        if not aviso_data[1]: # aviso_data[1] é o campo 'ativo'
+            return jsonify({"message": "Aviso já está inativo."}), 200
+
+
+        cursor.execute("UPDATE avisos SET ativo = FALSE WHERE id = %s", (aviso_id,))
+        conn.commit()
+        return jsonify({"message": "Aviso inativado com sucesso!"}), 200
+    except mysql.connector.Error as err:
+        conn.rollback()
+        print(f"Erro no banco de dados ao inativar aviso: {err}")
+        return jsonify({"error": f"Erro no banco de dados: {str(err)}"}), 500
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro interno ao inativar aviso: {e}")
+        return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
