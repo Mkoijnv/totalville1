@@ -1,24 +1,37 @@
-// app/components/FeatureCard.tsx
-'use client';
-
 interface FeatureCardProps {
-  icon: string; // Para um emoji ou um path para SVG/Image
+  icon: string;
   title: string;
   description: string;
-  cardBgColor: string;    // Nova: cor de fundo do card
-  iconBgColor: string;    // Nova: cor de fundo do círculo do ícone
-  iconTextColor: string;  // Nova: cor do texto/emoji do ícone
+  cardBgColor?: string;
+  iconBgColor?: string;
+  iconTextColor?: string;
 }
 
-export default function FeatureCard({ icon, title, description, cardBgColor, iconBgColor, iconTextColor }: FeatureCardProps) {
+export default function FeatureCard({
+  icon,
+  title,
+  description,
+  cardBgColor = "bg-white",
+  iconBgColor = "bg-gray-100",
+  iconTextColor = "text-gray-800",
+}: FeatureCardProps) {
   return (
-    <div className={`${cardBgColor} rounded-lg shadow-lg p-8 text-center border border-gray-100 transition-transform transform hover:scale-105 hover:shadow-xl duration-300`}>
-      {/* Círculo do ícone com cores dinâmicas */}
-      <div className={`text-6xl mb-6 flex justify-center items-center h-20 w-20 mx-auto rounded-full ${iconBgColor} ${iconTextColor}`}>
+    <div
+      className={`p-6 rounded-xl shadow-md transition-all duration-300 transform hover:scale-105
+        h-full min-h-[280px] flex flex-col justify-between ${cardBgColor}`}
+    >
+      {/* Ícone */}
+      <div
+        className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl mb-4 ${iconBgColor} ${iconTextColor}`}
+      >
         {icon}
       </div>
-      <h3 className="text-2xl font-bold text-green-800 mb-3">{title}</h3>
-      <p className="text-gray-700 leading-relaxed">{description}</p>
+
+      {/* Título */}
+      <h3 className="text-xl font-bold mb-2 text-green-900">{title}</h3>
+
+      {/* Descrição */}
+      <p className="text-sm text-green-800 flex-grow">{description}</p>
     </div>
   );
 }
