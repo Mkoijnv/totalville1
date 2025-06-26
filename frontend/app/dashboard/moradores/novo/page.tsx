@@ -104,7 +104,7 @@ export default function CadastrarMoradorPage() {
       }
 
       try {
-        const resUnidades = await fetch('http://127.0.0.1:5000/api/unidades', {
+        const resUnidades = await fetch('http://34.95.214.56:5000/api/unidades', {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         });
         if (!resUnidades.ok) {
@@ -197,7 +197,7 @@ export default function CadastrarMoradorPage() {
         tipo_morador: formData.tipo_morador
       };
 
-      const response = await fetch('http://127.0.0.1:5000/api/moradores', {
+      const response = await fetch('http://34.95.214.56:5000/api/moradores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload),

@@ -20,7 +20,7 @@ export default function Sidebar() {
       const token = localStorage.getItem('token');
       if (token) {
         try {
-          const response = await fetch('http://127.0.0.1:5000/api/auth/me', {
+          const response = await fetch('http://34.95.214.56:5000/api/auth/me', {
             headers: {
               'Authorization': `Bearer ${token}`
             }

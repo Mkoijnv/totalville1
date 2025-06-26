@@ -56,7 +56,7 @@ export default function GerenciarMoradoresPage() {
 
     try {
       // Busca Unidades (necessário para exibir unidade_numero e bloco)
-      const resUnidades = await fetch('http://127.0.0.1:5000/api/unidades', {
+      const resUnidades = await fetch('http://34.95.214.56:5000/api/unidades', {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       });
       if (!resUnidades.ok) {
@@ -66,7 +66,7 @@ export default function GerenciarMoradoresPage() {
       setUnidades(unidadesData);
 
       // Busca Moradores
-      const resMoradores = await fetch('http://127.0.0.1:5000/api/moradores', {
+      const resMoradores = await fetch('http://34.95.214.56:5000/api/moradores', {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       });
       if (!resMoradores.ok) {
@@ -136,7 +136,7 @@ export default function GerenciarMoradoresPage() {
 
     try {
       const newStatus = !currentStatus;
-      const response = await fetch(`http://127.0.0.1:5000/api/moradores/${moradorId}/status`, {
+      const response = await fetch(`http://34.95.214.56:5000/api/moradores/${moradorId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ ativo: newStatus }),

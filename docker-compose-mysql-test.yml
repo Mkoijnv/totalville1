@@ -1,0 +1,7 @@
+services:
+  mysql-test:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: test123
+    ports:
+      - "3307:3306"

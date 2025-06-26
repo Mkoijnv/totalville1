@@ -181,7 +181,7 @@ useEffect(() => {
 
     try {
       // 1. Fetch All Units (for unit destination select and mapping to residents/packages)
-      const resAllUnidades = await fetch('http://127.0.0.1:5000/api/unidades', {
+      const resAllUnidades = await fetch('http://34.95.214.56:5000/api/unidades', {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       });
       if (!resAllUnidades.ok) {
@@ -198,7 +198,7 @@ useEffect(() => {
 
 
       // 2. Fetch Residents (to populate the resident dropdown in the package registration form)
-      const resMoradores = await fetch('http://127.0.0.1:5000/api/moradores', {
+      const resMoradores = await fetch('http://34.95.214.56:5000/api/moradores', {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       });
       if (!resMoradores.ok) {
@@ -221,7 +221,7 @@ useEffect(() => {
       setMoradoresOptions(moradoresOptionsData);
 
       // 3. Fetch Packages
-      const resEncomendas = await fetch(`http://127.0.0.1:5000/api/encomendas`, { 
+      const resEncomendas = await fetch(`http://34.95.214.56:5000/api/encomendas`, { 
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       });
       if (!resEncomendas.ok) {
@@ -306,7 +306,7 @@ useEffect(() => {
         unidade_destino_id: finalUnidadeDestinoId, 
       };
 
-      const response = await fetch('http://127.0.0.1:5000/api/encomendas', { 
+      const response = await fetch('http://34.95.214.56:5000/api/encomendas', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload),
@@ -362,7 +362,7 @@ useEffect(() => {
     }
 
     try {
-      const response = await fetch(`http://127.0.0.1:5000/api/encomendas/${selectedEncomendaForWithdrawal.id}/retirada`, { 
+      const response = await fetch(`http://34.95.214.56:5000/api/encomendas/${selectedEncomendaForWithdrawal.id}/retirada`, { 
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ 

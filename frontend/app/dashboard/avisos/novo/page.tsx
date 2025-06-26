@@ -157,7 +157,7 @@ export default function GerenciarAvisosPage() {
     }
 
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/avisos', {
+      const response = await fetch('http://34.95.214.56:5000/api/avisos', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -243,7 +243,7 @@ export default function GerenciarAvisosPage() {
     }
 
     try {
-      const response = await fetch(`http://127.0.0.1:5000/api/avisos/inativar/${id}`, {
+      const response = await fetch(`http://34.95.214.56:5000/api/avisos/inativar/${id}`, {
         method: 'PUT', // Método PUT para inativar
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -278,7 +278,7 @@ export default function GerenciarAvisosPage() {
     }
 
     const method = isEditing ? 'PUT' : 'POST';
-    const url = isEditing ? `http://127.0.0.1:5000/api/avisos/${formData.id}` : 'http://127.0.0.1:5000/api/avisos';
+    const url = isEditing ? `http://34.95.214.56:5000/api/avisos/${formData.id}` : 'http://34.95.214.56:5000/api/avisos';
 
     try {
       const payload: {

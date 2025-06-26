@@ -31,7 +31,7 @@ export default function VisitantesPage() {
       }
 
       try {
-        const response = await fetch('http://127.0.0.1:5000/api/auth/me', {
+        const response = await fetch('http://34.95.214.56:5000/api/auth/me', {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -84,7 +84,7 @@ export default function VisitantesPage() {
     }
 
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/visitantes', {
+      const response = await fetch('http://34.95.214.56:5000/api/visitantes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(formData),

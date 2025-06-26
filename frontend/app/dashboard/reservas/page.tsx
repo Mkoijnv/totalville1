@@ -51,7 +51,7 @@ export default function ReservasPage() {
         return;
       }
       try {
-        const response = await fetch(`http://127.0.0.1:5000/api/reservations/booked-dates?space=${encodeURIComponent(spaceName)}`, {
+        const response = await fetch(`http://34.95.214.56:5000/api/reservations/booked-dates?space=${encodeURIComponent(spaceName)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!response.ok) {
@@ -123,7 +123,7 @@ export default function ReservasPage() {
 
     try {
       // CORREÇÃO: Altera a URL para o endpoint correto do backend: /api/reservas
-      const response = await fetch('http://127.0.0.1:5000/api/reservas', { // <-- Endpoint corrigido
+      const response = await fetch('http://34.95.214.56:5000/api/reservas', { // <-- Endpoint corrigido
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json', 

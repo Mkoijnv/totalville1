@@ -104,22 +104,22 @@ export default function DashboardHomePage() {
       } 
       try { 
         const [resReservations, resVisitors, resOccurrences, resEncomendas, resAvisos, resAllReservations] = await Promise.all([ 
-          fetch('http://127.0.0.1:5000/api/minhas-reservas', {  
+          fetch('http://34.95.214.56:5000/api/minhas-reservas', {  
             headers: { 'Authorization': `Bearer ${token}` }  
           }), 
-          fetch('http://127.0.0.1:5000/api/meus-visitantes', {  
+          fetch('http://34.95.214.56:5000/api/meus-visitantes', {  
             headers: { 'Authorization': `Bearer ${token}` }  
           }), 
-          fetch('http://127.0.0.1:5000/api/ocorrencias/resumo', {  
+          fetch('http://34.95.214.56:5000/api/ocorrencias/resumo', {  
             headers: { 'Authorization': `Bearer ${token}` }  
           }),
-          fetch('http://127.0.0.1:5000/api/minhas-encomendas', {
+          fetch('http://34.95.214.56:5000/api/minhas-encomendas', {
             headers: { 'Authorization': `Bearer ${token}` }
           }),
-          fetch('http://127.0.0.1:5000/api/avisos', {
+          fetch('http://34.95.214.56:5000/api/avisos', {
             headers: { 'Authorization': `Bearer ${token}` }
           }),
-          fetch('http://127.0.0.1:5000/api/reservas/resumo-geral', {
+          fetch('http://34.95.214.56:5000/api/reservas/resumo-geral', {
             headers: { 'Authorization': `Bearer ${token}` }
           })
         ]); 

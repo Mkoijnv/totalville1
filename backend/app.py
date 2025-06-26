@@ -8,10 +8,9 @@ from flask_cors import CORS
 import mysql.connector
 import mercadopago
 
-load_dotenv()
 app = Flask(__name__)
 bcrypt = Bcrypt(app)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 app.config['JWT_ALGORITHM'] = 'HS256'
@@ -22,15 +21,18 @@ UNREGISTERED_MORADOR_PLACEHOLDER_ID = 1
 def get_db_connection():
     try:
         conn = mysql.connector.connect(
-            host=os.getenv('DB_HOST'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-            database=os.getenv('DB_NAME'),
+            host=os.getenv('DATABASE_HOST'),        # MUDAR PARA 'DATABASE_HOST'
+            user=os.getenv('DATABASE_USER'),        # MUDAR PARA 'DATABASE_USER'
+            password=os.getenv('DATABASE_PASSWORD'),# MUDAR PARA 'DATABASE_PASSWORD'
+            database=os.getenv('DATABASE_NAME'),    # MUDAR PARA 'DATABASE_NAME'
             charset='utf8mb4'
         )
         return conn
     except mysql.connector.Error as err:
-        print(f"Erro ao conectar ao MySQL: {err}")
+        print(f"❌ Erro ao conectar ao MySQL: {err}")
+        # Adicionar prints de debug para ver os valores lidos
+        print(f"DEBUG: DATABASE_HOST lido: {os.getenv('DATABASE_HOST')}")
+        print(f"DEBUG: DATABASE_USER lido: {os.getenv('DATABASE_USER')}")
         return None
 
 sdk = mercadopago.SDK(os.getenv("MERCADOPAGO_ACCESS_TOKEN"))

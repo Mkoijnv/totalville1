@@ -1,0 +1,8 @@
+# ~/totalville1/backend/.env
+DB_HOST=db
+DB_USER=totalville_user
+DB_PASSWORD=piscinadefogo
+DB_NAME=totalville1
+JWT_SECRET_KEY=sua-chave-secreta-super-dificil-de-adivinhar-12345
+MERCADOPAGO_ACCESS_TOKEN=APP_USR-6969870495921891-062401-609d3e595e1e4ea33274c9f8c251e8d1-656413634
+MERCADOPAGO_WEBHOOK_URL=https://1a4b-2804-1128-bd48-a100-6c8e-cbc6-5dc6-f044.ngrok-free.app/api/webhooks/mercadopago

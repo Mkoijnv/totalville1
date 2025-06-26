@@ -1,10 +1,17 @@
 # Usa uma imagem base oficial do Python
-FROM python:3.9-slim-buster
+FROM python:3.10-slim-bookworm
 
 # Define o diretório de trabalho dentro do contêiner
 WORKDIR /app
 
 # Copia o arquivo de requisitos para o diretório de trabalho
+
+RUN apt update && apt install -y \
+    build-essential \
+    pkg-config \
+    libmariadb-dev-compat \
+    default-libmysqlclient-dev \
+    && rm -rf /var/lib/apt/lists/*
 # É importante copiar primeiro apenas o requirements.txt para aproveitar o cache do Docker
 COPY requirements.txt .
 

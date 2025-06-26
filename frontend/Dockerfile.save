@@ -1,0 +1,24 @@
+# Estágio de construção
+# Usa uma imagem Node.js para construir a aplicação Next.js
+FROM node:20-alpine AS builder
+
+# Define o diretório de trabalho dentro do contêiner
+WORKDIR /app
+
+# Copia os arquivos de configuração do projeto (package.json e package-lock.json/yarn.lock)
+# Isso é feito primeiro para aproveitar o cache do Docker para as dependências
+COPY package.json yarn.lock* package-lock.json* ./
+
+# Instala as dependências do projeto
+# Use yarn se estiver usando yarn, caso contrário, npm install
+RUN npm install --frozen-lockfile
+
+# Copia o restante do código da sua aplicação Next.js
+COPY . .
+
+# Constrói a aplicação Next.js para produção
+# Certifique-se de que este comando corresponda ao seu script de build no package.json
+RUN npm run build
+
+# Estágio de produção
+# Usa uma i

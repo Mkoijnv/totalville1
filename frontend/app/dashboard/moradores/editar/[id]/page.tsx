@@ -128,7 +128,7 @@ export default function EditarMoradorPage() {
 
       try {
         // 1. Buscar Unidades
-        const resUnidades = await fetch('http://127.0.0.1:5000/api/unidades', {
+        const resUnidades = await fetch('http://34.95.214.56:5000/api/unidades', {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         });
         if (!resUnidades.ok) {
@@ -138,7 +138,7 @@ export default function EditarMoradorPage() {
         setUnidades(unidadesData);
 
         // 2. Buscar Dados do Morador
-        const resMorador = await fetch(`http://127.0.0.1:5000/api/moradores/${moradorId}`, {
+        const resMorador = await fetch(`http://34.95.214.56:5000/api/moradores/${moradorId}`, {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         });
         if (!resMorador.ok) {
@@ -258,7 +258,7 @@ export default function EditarMoradorPage() {
         payload.password = formData.password;
       }
 
-      const response = await fetch(`http://127.0.0.1:5000/api/moradores/${moradorId}`, {
+      const response = await fetch(`http://34.95.214.56:5000/api/moradores/${moradorId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload),

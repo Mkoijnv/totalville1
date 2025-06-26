@@ -1,78 +1,68 @@
-import os # Importar o módulo 'os'
-import mysql.connector
-from dotenv import load_dotenv # Importar load_dotenv para carregar variáveis de ambiente
+import mysql.connector # Mantenha apenas este import se não usar 'os' ou 'dotenv'
 
-# Carregar variáveis de ambiente do arquivo .env
-load_dotenv()
-
-# Definição de get_db_connection para este script, se não for importada de outro lugar.
-# Se você tiver uma função get_db_connection em app.py e quiser reusá-la,
-# certifique-se de que app.py não tenta importar nada deste arquivo.
-# Para este script funcionar de forma independente na criação do DB, é melhor definir a conexão aqui.
+# Definição de get_db_connection para este script, com credenciais fixas.
 def get_db_connection_for_config():
     try:
         conn = mysql.connector.connect(
-            host=os.getenv('DB_HOST'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-            database=os.getenv('DB_NAME'), # O DB_NAME deve ser 'totalville1'
-            charset='utf8mb4' 
+            host='db',              # HOST: 'db' (dentro da rede Docker)
+            user='root',            # USUÁRIO: 'root'
+            password='admin123',    # SENHA: 'admin123' (a do seu docker-compose.yml)
+            database='totalville1', # NOME DO BANCO: 'totalville1'
+            charset='utf8mb4'
         )
+        print("✅ Conexão bem-sucedida ao MySQL!") # Adicionar para depuração
         return conn
     except mysql.connector.Error as err:
-        print(f"Erro ao conectar ao MySQL: {err}")
+        print(f"❌ Erro ao conectar ao MySQL: {err}")
+        if err.errno == mysql.connector.errorcode.CR_CONN_HOST_ERROR:
+            print(f"DEBUG: Não foi possível conectar ao host 'db'. O host ou a porta podem estar incorretos, ou o servidor MySQL não está respondendo.")
+        elif err.errno == mysql.connector.errorcode.ER_ACCESS_DENIED_ERROR:
+            print(f"DEBUG: Acesso negado. Verifique usuário e senha fixados no script.")
         return None
 
 def configurar_banco_de_dados():
     """
-    Cria e configura as tabelas do banco de dados com a estrutura correta,
-    incluindo 'unidades', 'moradores', e 'encomendas' com a nova coluna.
-    Também insere o morador placeholder "Ainda Não Cadastrado".
-    Adiciona a configuração utf8mb4 para a tabela 'avisos' e suas colunas.
-    Cria o banco de dados 'totalville1' se ele não existir.
+    Cria e configura as tabelas do banco de dados.
     """
     # Para criar o banco de dados, precisamos nos conectar ao servidor MySQL sem especificar um DB inicialmente.
     try:
-        temp_conn = mysql.connector.connect(
-            host=os.getenv('DB_HOST'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
+        temp_conn = mysql.connector.connect( # Note: era mysql.connector.connector, corrigido para mysql.connector
+            host='db',              # HOST: 'db'
+            user='root',            # USUÁRIO: 'root'
+            password='admin123',    # SENHA: 'admin123'
             # Não especifica o 'database' aqui, pois o objetivo é criá-lo
             charset='utf8mb4' # Manter charset para a conexão
         )
         temp_cursor = temp_conn.cursor()
 
-        db_name = os.getenv('DB_NAME') # Usar a variável de ambiente para o nome do banco
-        if not db_name:
-            raise ValueError("Variável de ambiente 'DB_NAME' não definida. Por favor, defina-a no seu arquivo .env.")
+        db_name = 'totalville1' # Nome do banco de dados fixo
 
         print(f"Verificando/Criando banco de dados '{db_name}'...")
-        # Cria o banco de dados se não existir, com a codificação correta
         temp_cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
         print(f"-> Banco de dados '{db_name}' OK.")
-        
+
         temp_cursor.close()
         temp_conn.close()
 
     except mysql.connector.Error as err:
         print(f"❌ Erro ao conectar ou criar o banco de dados: {err}")
-        return
-    except ValueError as e:
-        print(f"❌ Erro de configuração: {e}")
+        if err.errno == mysql.connector.errorcode.CR_CONN_HOST_ERROR:
+            print(f"DEBUG: Não foi possível conectar ao host 'db'. O host ou a porta podem estar incorretos, ou o servidor MySQL não está respondendo.")
+        elif err.errno == mysql.connector.errorcode.ER_ACCESS_DENIED_ERROR:
+            print(f"DEBUG: Acesso negado. Verifique usuário e senha fixados no script.")
         return
     except Exception as e:
         print(f"❌ Erro inesperado ao criar o banco de dados: {e}")
         return
 
     # Agora, podemos obter a conexão para o banco de dados recém-criado/existente
-    # Usaremos a função de conexão definida neste script, 'get_db_connection_for_config'.
     conn = get_db_connection_for_config()
     if not conn:
         print("❌ Não foi possível conectar ao banco de dados para a configuração das tabelas.")
         return
 
     cursor = conn.cursor()
-    
+
     try:
         # 1. Tabela de Administradores
         print("Verificando/Criando tabela 'administradores'...")
@@ -180,7 +170,7 @@ def configurar_banco_de_dados():
         ) ENGINE=InnoDB;
         """)
         print("-> Tabela 'reservas' OK.")
-        
+
         # 7. Tabela de Avisos (COM CONFIGURAÇÃO UTF8MB4)
         print("Verificando/Criando tabela 'avisos'...")
         cursor.execute("""
@@ -227,7 +217,6 @@ def configurar_banco_de_dados():
         # Inserir morador placeholder "Ainda Não Cadastrado"
         UNREGISTERED_MORADOR_EMAIL = 'nao_cadastrado@placeholder.com'
         UNREGISTERED_MORADOR_CPF = '000.000.000-00'
-        # Senha "123" hasheada
         UNREGISTERED_MORADOR_HASH = '$2b$12$hScMEf.D2VWJInYcXM4Zt.yufmvJhxbNEYPmuoVPAmsIpOjc4rIQS'
 
         print(f"Inserindo/Verificando morador placeholder '{UNREGISTERED_MORADOR_EMAIL}'...")
@@ -235,17 +224,15 @@ def configurar_banco_de_dados():
             INSERT IGNORE INTO moradores (id, nome_completo, email, senha_hash, unidade_id, cpf, rg, profissao, whatsapp, tipo_morador, ativo)
             VALUES (1, 'Morador Não Cadastrado', %s, %s, NULL, %s, NULL, NULL, NULL, 'outro', FALSE)
         """, (UNREGISTERED_MORADOR_EMAIL, UNREGISTERED_MORADOR_HASH, UNREGISTERED_MORADOR_CPF))
-        
-        # Opcional: Inserir um administrador padrão se não existir
+
         ADMIN_EMAIL = 'admin@condominio.com'
-        ADMIN_HASH = '$2b$12$hScMEf.D2VWJInYcXM4Zt.yufmvJhxbNEYPmuoVPAmsIpOjc4rIQS' # Senha "123"
+        ADMIN_HASH = '$2b$12$hScMEf.D2VWJInYcXM4Zt.yufmvJhxbNEYPmuoVPAmsIpOjc4rIQS'
         print(f"Inserindo/Verificando administrador padrão '{ADMIN_EMAIL}'...")
         cursor.execute("""
             INSERT IGNORE INTO administradores (nome, email, senha_hash, permissao, ativo)
             VALUES ('Administrador Master', %s, %s, 'ADM', TRUE)
         """, (ADMIN_EMAIL, ADMIN_HASH))
 
-        # Opcional: Inserir algumas unidades de exemplo se não existirem
         print("Inserindo/Verificando unidades de exemplo...")
         cursor.execute("""
             INSERT IGNORE INTO unidades (tipo_unidade, bloco, numero, andar, ocupada) VALUES 
@@ -254,7 +241,7 @@ def configurar_banco_de_dados():
             ('casa', NULL, '01', NULL, TRUE),
             ('casa', NULL, '02', NULL, FALSE);
         """)
-        
+
         conn.commit()
         print("\n✅ Configuração do banco de dados concluída com sucesso!")
 
@@ -268,6 +255,6 @@ def configurar_banco_de_dados():
             conn.close()
         print("🔌 Conexão com o MySQL foi fechada.")
 
-
 if __name__ == '__main__':
+    print("🚀 Iniciando script init_db.py...")
     configurar_banco_de_dados()
